@@ -130,6 +130,27 @@
                 } catch (err) { console.error(err); }
             };
 
+            const deleteMatch = async () => {
+                if(!confirm("⚠️ 危險操作：您確定要「永久刪除」這場比賽嗎？\n此動作無法復原！")) return;
+                
+                // 如果有密碼，需要再次驗證
+                if (matchData.password) {
+                    const input = prompt("為了安全起見，請再次輸入裁判密碼以確認刪除：");
+                    if (input !== matchData.password) {
+                        alert("密碼錯誤，取消刪除。");
+                        return;
+                    }
+                }
+
+                try {
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).delete();
+                    // 這裡不需要手動 redirect，App 組件的 onSnapshot 會偵測到文件消失並處理
+                } catch (err) { 
+                    console.error(err); 
+                    alert("刪除失敗: " + err.message);
+                }
+            };
+
             return (
                 <div className="p-4 max-w-4xl mx-auto">
                     <div className="bg-gray-800 rounded-xl p-6 mb-6 shadow-lg border border-gray-700">
@@ -171,8 +192,8 @@
                                 <summary className="cursor-pointer text-gray-400 hover:text-white flex items-center font-medium">
                                     <i className="fas fa-cog mr-2"></i> 比賽設定
                                 </summary>
-                                <div className="mt-4 p-4 bg-gray-900 rounded">
-                                    <form onSubmit={updateNames} className="flex flex-col gap-4 mb-4">
+                                <div className="mt-4 p-4 bg-gray-900 rounded border border-gray-700">
+                                    <form onSubmit={updateNames} className="flex flex-col gap-4 mb-6">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-xs text-gray-500 mb-1">主隊名稱 (紅)</label>
@@ -185,9 +206,19 @@
                                         </div>
                                         <button type="submit" className="bg-gray-700 hover:bg-gray-600 text-white py-2 rounded">更新名稱</button>
                                     </form>
-                                    <button onClick={resetMatch} className="w-full border border-red-600 text-red-500 hover:bg-red-600/10 py-2 rounded">
-                                        重置比賽
-                                    </button>
+                                    
+                                    <div className="flex flex-col gap-3">
+                                        <button onClick={resetMatch} className="w-full border border-orange-600/50 text-orange-400 hover:bg-orange-600/10 py-2 rounded transition">
+                                            <i className="fas fa-undo mr-2"></i>重置比分
+                                        </button>
+                                        
+                                        <div className="mt-4 pt-4 border-t border-gray-700">
+                                            <h4 className="text-red-500 font-bold mb-2 text-xs uppercase">危險區域</h4>
+                                            <button onClick={deleteMatch} className="w-full bg-red-900/20 hover:bg-red-900/40 border border-red-800/50 text-red-400 py-3 rounded flex items-center justify-center transition">
+                                                <i className="fas fa-trash-alt mr-2"></i> 刪除此比賽
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </details>
                         </div>
@@ -365,11 +396,15 @@
                     if (doc.exists) {
                         setCurrentMatchData(doc.data());
                     } else {
-                        console.warn("Match not found or deleted");
+                        // 如果文件不存在 (被刪除)，自動跳轉回首頁
+                        alert("此比賽已被刪除或不存在");
+                        setView('home');
+                        setCurrentMatchId(null);
+                        setCurrentMatchData(null);
                     }
                 }, err => {
                     console.error("Match Sync Error", err);
-                    alert("同步失敗：" + err.message);
+                    // 忽略權限錯誤，通常是因為被刪除瞬間權限變更導致的
                 });
 
                 return () => unsubscribe();
