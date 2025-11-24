@@ -59,78 +59,23 @@
         // Firebase 初始化邏輯
         // ==========================================
         
-        // 嘗試從環境變數獲取配置，如果在預覽環境中
-        let app, db, auth;
-        let isFirebaseReady = false;
-
-        try {
-            // 優先檢查是否有預注入的配置 (針對這個預覽環境)
-            if (typeof __firebase_config !== 'undefined') {
-                const config = JSON.parse(__firebase_config);
-                app = firebase.initializeApp(config);
-                db = firebase.firestore();
-                auth = firebase.auth();
-                isFirebaseReady = true;
-
-                // 處理匿名登入
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    auth.signInWithCustomToken(__initial_auth_token);
-                } else {
-                    auth.signInAnonymously();
-                }
-            }
-        } catch (e) {
-            console.error("Firebase auto-init failed:", e);
-        }
-
-        // ==========================================
-        // 組件: 設定畫面 (如果沒有自動配置)
-        // ==========================================
-        const ConfigScreen = ({ onConfigSubmit }) => {
-            const [configStr, setConfigStr] = useState('');
-            const [error, setError] = useState('');
-
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                try {
-                    // 嘗試解析並初始化
-                    const config = JSON.parse(configStr);
-                    if (!firebase.apps.length) {
-                        app = firebase.initializeApp(config);
-                        db = firebase.firestore();
-                        auth = firebase.auth();
-                        auth.signInAnonymously().catch(err => console.error("Auth Error", err));
-                    }
-                    onConfigSubmit();
-                } catch (err) {
-                    setError("無效的 JSON 格式或 Firebase 初始化失敗。請檢查控制台。");
-                }
-            };
-
-            return (
-                <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
-                        <h2 className="text-2xl font-bold mb-4 text-blue-400">設定 Firebase</h2>
-                        <p className="text-gray-300 mb-4 text-sm">
-                            請貼上您的 Firebase Config JSON 對象 (從 Firebase Console > Project Settings 獲取)。
-                        </p>
-                        <textarea
-                            className="w-full bg-gray-900 text-green-400 font-mono text-xs p-3 rounded h-40 mb-4 border border-gray-700 focus:outline-none focus:border-blue-500"
-                            placeholder='{ "apiKey": "...", "authDomain": "...", ... }'
-                            value={configStr}
-                            onChange={(e) => setConfigStr(e.target.value)}
-                        />
-                        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-                        <button 
-                            onClick={handleSubmit}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition"
-                        >
-                            啟動 App
-                        </button>
-                    </div>
-                </div>
-            );
+        const firebaseConfig = {
+          apiKey: "AIzaSyDEIqjG6E6szWA2m_-UNsBVUV9p_OpHIEI",
+          authDomain: "score-board-33f85.firebaseapp.com",
+          projectId: "score-board-33f85",
+          storageBucket: "score-board-33f85.firebasestorage.app",
+          messagingSenderId: "584844612174",
+          appId: "1:584844612174:web:63dc7c2d70b3e57767a91f",
+          measurementId: "G-6LFECKTTB4"
         };
+
+        // 直接初始化
+        const app = firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        
+        // 啟動匿名登入
+        auth.signInAnonymously().catch(err => console.error("Auth Error", err));
 
         // ==========================================
         // 組件: 裁判模式
@@ -345,7 +290,6 @@
         // ==========================================
         const App = () => {
             // State
-            const [isConfigured, setIsConfigured] = useState(isFirebaseReady);
             const [user, setUser] = useState(null);
             const [view, setView] = useState('home'); // 'home', 'match'
             const [currentMatchId, setCurrentMatchId] = useState(null);
@@ -361,17 +305,15 @@
 
             // Auth Listener
             useEffect(() => {
-                if (isConfigured && auth) {
-                    const unsub = auth.onAuthStateChanged(u => {
-                        setUser(u);
-                    });
-                    return () => unsub();
-                }
-            }, [isConfigured]);
+                const unsub = auth.onAuthStateChanged(u => {
+                    setUser(u);
+                });
+                return () => unsub();
+            }, []);
 
             // Fetch Matches List (Home View)
             useEffect(() => {
-                if (!isConfigured || !user || view !== 'home') return;
+                if (!user || view !== 'home') return;
 
                 setLoading(true);
                 // 使用 onSnapshot 確保新增比賽時列表即時更新
@@ -392,11 +334,11 @@
                 });
 
                 return () => unsubscribe();
-            }, [isConfigured, user, view]);
+            }, [user, view]);
 
             // Listen to Specific Match (Match View)
             useEffect(() => {
-                if (!isConfigured || !user || view !== 'match' || !currentMatchId) return;
+                if (!user || view !== 'match' || !currentMatchId) return;
 
                 const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(currentMatchId);
                 
@@ -412,7 +354,7 @@
                 });
 
                 return () => unsubscribe();
-            }, [isConfigured, user, view, currentMatchId]);
+            }, [user, view, currentMatchId]);
 
             // Actions
             const createMatch = async () => {
@@ -459,10 +401,6 @@
             };
 
             // Renders
-            if (!isConfigured) {
-                return <ConfigScreen onConfigSubmit={() => setIsConfigured(true)} />;
-            }
-
             if (!user) {
                 return <div className="h-screen flex items-center justify-center text-gray-400">正在連接伺服器...</div>;
             }
