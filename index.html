@@ -822,23 +822,23 @@
                                 
                                 <div className="flex bg-gray-900 rounded-lg p-1">
                                     <button 
+                                    onClick={() => switchMode('display')}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'display' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                    顯示
+                                    </button>
+                                    <button 
+                                    onClick={() => switchMode('review')}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'review' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                    回顧
+                                    </button>
+                                    <button 
                                         onClick={() => switchMode('referee')}
                                         className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center ${mode === 'referee' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         {currentMatchData.password && mode !== 'referee' && <i className="fas fa-lock text-xs mr-1"></i>}
                                         裁判
-                                    </button>
-                                    <button 
-                                        onClick={() => switchMode('display')}
-                                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'display' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        顯示
-                                    </button>
-                                    <button 
-                                        onClick={() => switchMode('review')}
-                                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'review' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        回顧
                                     </button>
                                 </div>
 
