@@ -112,17 +112,19 @@
                     <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
                         <h2 className="text-2xl font-bold mb-4 text-blue-400">設定 Firebase</h2>
                         <p className="text-gray-300 mb-4 text-sm">
-                            // 請貼上您的 Firebase Config JSON 對象 (從 Firebase Console > Project Settings 獲取)。
-                            const firebaseConfig = {
-                                apiKey: "AIzaSyDEIqjG6E6szWA2m_-UNsBVUV9p_OpHIEI",
-                                authDomain: "score-board-33f85.firebaseapp.com",
-                                projectId: "score-board-33f85",
-                                storageBucket: "score-board-33f85.firebasestorage.app",
-                                messagingSenderId: "584844612174",
-                                appId: "1:584844612174:web:63dc7c2d70b3e57767a91f",
-                                measurementId: "G-6LFECKTTB4"
-                            };
+                            請貼上您的 Firebase Config JSON 對象 (從 Firebase Console &gt; Project Settings 獲取)。
                         </p>
+                        <div className="bg-gray-900 text-gray-400 font-mono text-xs p-3 rounded mb-4 border border-gray-700">
+                            <pre>{`{
+  "apiKey": "YOUR_API_KEY",
+  "authDomain": "your-project.firebaseapp.com",
+  "projectId": "your-project-id",
+  "storageBucket": "your-project.appspot.com",
+  "messagingSenderId": "123456789",
+  "appId": "1:123456789:web:...",
+  "measurementId": "G-XXXXXXXXXX"
+}`}</pre>
+                        </div>
                         <textarea
                             className="w-full bg-gray-900 text-green-400 font-mono text-xs p-3 rounded h-40 mb-4 border border-gray-700 focus:outline-none focus:border-blue-500"
                             placeholder='{ "apiKey": "...", "authDomain": "...", ... }'
