@@ -301,7 +301,8 @@
             const [loading, setLoading] = useState(false);
 
             // App ID for Firestore path encapsulation
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-scoreboard-app';
+            // 修改重點：使用固定的 App ID，確保所有使用者都連線到同一個資料路徑
+            const appId = 'score-board-global-v1';
 
             // Auth Listener
             useEffect(() => {
