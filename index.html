@@ -123,10 +123,11 @@
                 const form = e.target;
                 try {
                     await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                        title: form.title.value,
                         teamA: form.teamA.value,
                         teamB: form.teamB.value
                     });
-                    alert("隊伍名稱已更新");
+                    alert("比賽資訊已更新");
                 } catch (err) { console.error(err); }
             };
 
@@ -155,7 +156,10 @@
                 <div className="p-4 max-w-4xl mx-auto">
                     <div className="bg-gray-800 rounded-xl p-6 mb-6 shadow-lg border border-gray-700">
                         <div className="flex justify-between items-start mb-4">
-                            <h2 className="text-xl font-bold text-yellow-400"><i className="fas fa-whistle mr-2"></i>裁判控制台</h2>
+                            <div>
+                                <h2 className="text-xl font-bold text-yellow-400"><i className="fas fa-whistle mr-2"></i>裁判控制台</h2>
+                                <h3 className="text-white text-lg font-bold mt-1">{matchData.title}</h3>
+                            </div>
                             {matchData.password && (
                                 <span className="text-xs bg-red-900 text-red-300 px-2 py-1 rounded border border-red-700">
                                     <i className="fas fa-lock mr-1"></i>已受密碼保護
@@ -194,6 +198,10 @@
                                 </summary>
                                 <div className="mt-4 p-4 bg-gray-900 rounded border border-gray-700">
                                     <form onSubmit={updateNames} className="flex flex-col gap-4 mb-6">
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">比賽標題</label>
+                                            <input name="title" defaultValue={matchData.title || "未命名比賽"} className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white font-bold" />
+                                        </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-xs text-gray-500 mb-1">主隊名稱 (紅)</label>
@@ -204,7 +212,7 @@
                                                 <input name="teamB" defaultValue={matchData.teamB} className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white" />
                                             </div>
                                         </div>
-                                        <button type="submit" className="bg-gray-700 hover:bg-gray-600 text-white py-2 rounded">更新名稱</button>
+                                        <button type="submit" className="bg-gray-700 hover:bg-gray-600 text-white py-2 rounded">更新資訊</button>
                                     </form>
                                     
                                     <div className="flex flex-col gap-3">
@@ -233,6 +241,9 @@
         const DisplayMode = ({ matchData }) => {
             return (
                 <div className="h-full flex flex-col items-center justify-center p-4 bg-black">
+                    <div className="text-gray-400 text-4xl font-bold mb-10 tracking-widest uppercase">
+                        {matchData.title || "LIVE MATCH"}
+                    </div>
                     <div className="w-full max-w-6xl flex justify-between items-center mb-8">
                         <div className="text-center w-1/2 border-r border-gray-800">
                             <h2 className="text-4xl md:text-6xl font-bold text-red-500 mb-4">{matchData.teamA}</h2>
@@ -265,8 +276,11 @@
             return (
                 <div className="p-4 max-w-3xl mx-auto">
                     <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-2xl font-bold text-green-400"><i className="fas fa-history mr-2"></i>比賽紀錄回顧</h2>
+                        <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-green-400"><i className="fas fa-history mr-2"></i>比賽紀錄回顧</h2>
+                                <div className="text-white text-lg mt-1">{matchData.title}</div>
+                            </div>
                             <div className="text-right">
                                 <div className="text-sm text-gray-400">最終比分</div>
                                 <div className="font-bold text-xl">{matchData.teamA} {matchData.scoreA} - {matchData.scoreB} {matchData.teamB}</div>
@@ -412,6 +426,9 @@
 
             // Actions
             const createMatch = async () => {
+                const title = prompt("請輸入比賽標題 (例如：冠軍賽 G1):", "一般比賽");
+                if (title === null) return; // 按取消
+
                 const nameA = prompt("主隊名稱 (Team A):", "主隊");
                 if (!nameA) return;
                 const nameB = prompt("客隊名稱 (Team B):", "客隊");
@@ -421,6 +438,7 @@
 
                 try {
                     const docRef = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').add({
+                        title: title || "未命名比賽",
                         teamA: nameA,
                         teamB: nameB,
                         scoreA: 0,
@@ -530,7 +548,8 @@
                                     {matches.map(m => (
                                         <div key={m.id} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-750 transition border border-gray-700">
                                             <div className="flex-1">
-                                                <div className="flex items-center gap-4 mb-1">
+                                                <div className="text-blue-400 font-bold mb-1 text-lg">{m.title || "未命名比賽"}</div>
+                                                <div className="flex items-center gap-4 mb-2">
                                                     <span className="font-bold text-lg text-white">{m.teamA}</span>
                                                     <span className="text-gray-500 font-mono text-xl">{m.scoreA} : {m.scoreB}</span>
                                                     <span className="font-bold text-lg text-white">{m.teamB}</span>
