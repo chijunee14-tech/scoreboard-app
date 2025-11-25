@@ -625,6 +625,85 @@
             const [history, setHistory] = useState([]);
             const [loading, setLoading] = useState(true);
 
+            const exportToCSV = () => {
+                // 準備 CSV 標題
+                const headers = ['時間', '事件', '詳情', '當時比分'];
+                
+                // 準備 CSV 資料行
+                const rows = history.map(item => {
+                    let time = '--:--:--';
+                    try {
+                        if (item.timestamp?.toDate) {
+                            time = item.timestamp.toDate().toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                        } else if (item.timestamp) {
+                            time = new Date(item.timestamp).toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Timestamp parsing error:', e);
+                    }
+                    
+                    // 處理欄位中的逗號和引號，避免 CSV 格式錯誤
+                    const escapeCSV = (str) => {
+                        if (typeof str !== 'string') str = String(str);
+                        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                            return `"${str.replace(/"/g, '""')}"`;
+                        }
+                        return str;
+                    };
+                    
+                    return [
+                        escapeCSV(time),
+                        escapeCSV(item.action || ''),
+                        escapeCSV(item.detail || ''),
+                        escapeCSV(item.scoreSnapshot || '')
+                    ].join(',');
+                });
+                
+                // 組合 CSV 內容（加入 BOM 以支援 Excel 正確顯示中文）
+                const csvContent = '\uFEFF' + [
+                    `比賽名稱: ${matchData.title}`,
+                    `選手 A: ${matchData.teamA}`,
+                    `選手 B: ${matchData.teamB}`,
+                    `賽制: ${MATCH_MODES[matchData.matchType]?.name || matchData.matchType}`,
+                    `最終比分: ${matchData.setsA.join('-')} vs ${matchData.setsB.join('-')}`,
+                    `比賽狀態: ${matchData.winner ? `完賽 (勝者: ${matchData.winner === 'A' ? matchData.teamA : matchData.teamB})` : '進行中'}`,
+                    '',
+                    headers.join(','),
+                    ...rows
+                ].join('\n');
+                
+                // 建立並下載檔案
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                
+                // 生成檔案名稱（包含比賽名稱和日期）
+                const date = new Date().toISOString().split('T')[0];
+                const fileName = `${matchData.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${date}.csv`;
+                
+                link.setAttribute('href', url);
+                link.setAttribute('download', fileName);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            };
+
             useEffect(() => {
                 // 從子集合即時監聽 history
                 // 注意：移除 orderBy 以避免需要索引，改為在客戶端排序
