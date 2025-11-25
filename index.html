@@ -624,6 +624,7 @@
 
             useEffect(() => {
                 // 從子集合即時監聽 history
+                // 注意：移除 orderBy 以避免需要索引，改為在客戶端排序
                 const unsubscribe = db.collection('artifacts')
                     .doc(appId)
                     .collection('public')
@@ -631,7 +632,6 @@
                     .collection('matches')
                     .doc(matchId)
                     .collection('history')
-                    .orderBy('timestamp', 'desc')
                     .limit(100) // 只載入最近 100 筆
                     .onSnapshot(
                         snapshot => {
@@ -643,6 +643,12 @@
                                     id: doc.id,
                                     ...data
                                 };
+                            });
+                            // 在客戶端排序（最新的在前）
+                            historyData.sort((a, b) => {
+                                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                                return timeB - timeA;
                             });
                             setHistory(historyData);
                             setLoading(false);
