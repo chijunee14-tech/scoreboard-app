@@ -96,15 +96,22 @@
 
         const formatTennisPoint = (pA, pB, isTieBreak) => {
             if (isTieBreak) return pA; // 搶七直接顯示數字
-            if (pA === 0) return '0';
-            if (pA === 1) return '15';
-            if (pA === 2) return '30';
-            if (pA === 3) return '40';
-            if (pA > 3) {
-                if (pA > pB) return 'AD'; // Advantage
-                if (pA === pB) return '40'; // Deuce 顯示 40-40 或是 Deuce
+            
+            // Deuce Logic (3 = 40分)
+            if (pA >= 3 && pB >= 3) {
+                if (pA === pB) return '40'; // Deuce 雙方顯示 40
+                if (pA > pB) return 'AD';   // 領先者顯示 AD
+                return '';                  // 落後者顯示 空白
             }
-            return '0';
+
+            // Normal Scoring
+            switch(pA) {
+                case 0: return '0';
+                case 1: return '15';
+                case 2: return '30';
+                case 3: return '40';
+                default: return '0';
+            }
         };
 
         // ==========================================
@@ -193,15 +200,16 @@
                         matchType: data.matchType,
                         teamA: data.teamA,
                         teamB: data.teamB,
-                        scoreA: 0, // 當前局分數 (0,1,2,3)
+                        scoreA: 0, 
                         scoreB: 0,
-                        setsA: [0], // 每一盤的局數
+                        setsA: [0], 
                         setsB: [0],
                         currentSetIndex: 0,
-                        isTieBreak: data.matchType === 'tiebreak', // 搶十模式一開始就是 Tiebreak
-                        server: 'A', // 初始發球者
+                        isTieBreak: data.matchType === 'tiebreak', 
+                        server: 'A', 
                         winner: null,
                         history: [],
+                        undoStack: [], // 新增 undo stack
                         password: data.password || null,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         createdBy: user.uid,
@@ -276,11 +284,27 @@
                 if (matchData.winner) return;
 
                 const d = { ...matchData };
+                
+                // 1. 建立當前狀態的快照 (Snapshot) 用於 Undo
+                const snapshot = {
+                    scoreA: d.scoreA,
+                    scoreB: d.scoreB,
+                    setsA: [...d.setsA], // Copy array
+                    setsB: [...d.setsB], // Copy array
+                    currentSetIndex: d.currentSetIndex,
+                    isTieBreak: d.isTieBreak,
+                    server: d.server,
+                    winner: d.winner,
+                    history: [...(d.history || [])] // Copy history
+                };
+
+                const undoStack = [...(d.undoStack || []), snapshot];
+
                 const mode = MATCH_MODES[d.matchType];
                 const setIdx = d.currentSetIndex;
                 const isTb = d.isTieBreak;
 
-                // 1. 增加分數
+                // 2. 增加分數
                 if (winner === 'A') d.scoreA++;
                 else d.scoreB++;
 
@@ -288,74 +312,57 @@
                 let setWon = false;
                 let matchWon = false;
 
-                // 2. 判斷是否贏得這局 (Game)
+                // 3. 判斷是否贏得這局 (Game)
                 if (isTb) {
-                    // 搶七/搶十規則
                     const target = d.matchType === 'tiebreak' ? mode.tiebreakTarget : 7;
                     if ((winner === 'A' ? d.scoreA : d.scoreB) >= target && Math.abs(d.scoreA - d.scoreB) >= 2) {
                         gameWon = true;
                     }
                 } else {
-                    // 一般局規則: 4分 (40) 且領先2分
                     if ((winner === 'A' ? d.scoreA : d.scoreB) >= 4 && Math.abs(d.scoreA - d.scoreB) >= 2) {
                         gameWon = true;
                     }
                 }
 
                 if (gameWon) {
-                    // 該局結束，重置分數
                     d.scoreA = 0;
                     d.scoreB = 0;
                     
                     if (d.matchType === 'tiebreak') {
-                        // 搶十模式，贏一局等於贏比賽
                         matchWon = true;
-                        setWon = true; // 視為贏得這一盤
+                        setWon = true;
                         d.setsA[setIdx] = winner === 'A' ? 1 : 0;
                         d.setsB[setIdx] = winner === 'B' ? 1 : 0;
                     } else {
-                        // 增加盤分 (Game score)
                         if (winner === 'A') d.setsA[setIdx]++;
                         else d.setsB[setIdx]++;
 
                         const gamesA = d.setsA[setIdx];
                         const gamesB = d.setsB[setIdx];
 
-                        // 3. 判斷是否贏得這盤 (Set)
-                        // 規則: 6局且領先2局 (6-4, 7-5)，或者 搶七贏了 (7-6)
                         if (d.isTieBreak) {
-                            // 如果是搶七結束，那這一盤肯定結束了
                             setWon = true;
-                            d.isTieBreak = false; // 下一盤回復正常
+                            d.isTieBreak = false;
                         } else {
                             if ((winner === 'A' ? gamesA : gamesB) >= mode.targetGames && Math.abs(gamesA - gamesB) >= 2) {
                                 setWon = true;
                             } else if (gamesA === 6 && gamesB === 6) {
-                                // 進入搶七
                                 d.isTieBreak = true;
                             }
                         }
-
-                        // 自動換發球 (每局結束換發球)
-                        // 注意：搶七內部換發球較複雜，這裡簡化為搶七結束後換，或每一局結束換
-                        // 為了簡單起見，網球規則是一局結束換發球
                         d.server = d.server === 'A' ? 'B' : 'A';
                     }
 
                     if (setWon) {
-                        // 4. 判斷是否贏得比賽 (Match)
-                        // 計算贏的盤數
                         let setsWonA = 0;
                         let setsWonB = 0;
                         d.setsA.forEach((s, i) => { if (s > d.setsB[i]) setsWonA++; else if (d.setsB[i] > s) setsWonB++; });
                         
-                        // 檢查是否達到獲勝門檻 (超過總盤數的一半)
                         const setsToWin = Math.ceil(mode.sets / 2);
                         if (setsWonA >= setsToWin || setsWonB >= setsToWin) {
                             matchWon = true;
                             d.winner = setsWonA > setsWonB ? 'A' : 'B';
                         } else {
-                            // 開始新的一盤
                             d.currentSetIndex++;
                             d.setsA.push(0);
                             d.setsB.push(0);
@@ -364,15 +371,16 @@
                     }
                 }
 
-                // Log History
+                // 4. Log History
                 const log = {
                     timestamp: new Date().toISOString(),
                     action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
                     detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
                     scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
                 };
+                const newHistory = [...(d.history || []), log];
 
-                // Update Firestore
+                // 5. Update Firestore
                 await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
                     scoreA: d.scoreA,
                     scoreB: d.scoreB,
@@ -382,8 +390,25 @@
                     isTieBreak: d.isTieBreak,
                     server: d.server,
                     winner: d.winner || null,
-                    history: firebase.firestore.FieldValue.arrayUnion(log),
+                    history: newHistory,
+                    undoStack: undoStack, // Save stack for undo
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            };
+
+            // Undo Function
+            const undoLastPoint = async () => {
+                if (!matchData.undoStack || matchData.undoStack.length === 0) {
+                    alert("已經是最早的狀態，無法復原。");
+                    return;
+                }
+                
+                const previousState = matchData.undoStack[matchData.undoStack.length - 1];
+                const newStack = matchData.undoStack.slice(0, -1); // Pop
+
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                    ...previousState,
+                    undoStack: newStack
                 });
             };
 
@@ -427,8 +452,7 @@
                             <div className={`relative p-6 rounded-xl border-2 transition ${matchData.winner === 'A' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
                                 {matchData.server === 'A' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-4 left-4 text-yellow-400 animate-bounce"></i>}
                                 <h3 className="text-2xl font-bold text-white mb-2">{matchData.teamA}</h3>
-                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2">{ptA}</div>
-                                <div className="text-slate-400 text-sm mb-4">Sets: {matchData.setsA.filter((s,i) => s > matchData.setsB[i]).length}</div>
+                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2 min-h-[5rem]">{ptA || '\u00A0'}</div>
                                 <button onClick={() => handlePoint('A')} disabled={!!matchData.winner} className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-xl shadow-lg btn-press">
                                     得分 +1
                                 </button>
@@ -438,8 +462,7 @@
                             <div className={`relative p-6 rounded-xl border-2 transition ${matchData.winner === 'B' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
                                 {matchData.server === 'B' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-4 left-4 text-yellow-400 animate-bounce"></i>}
                                 <h3 className="text-2xl font-bold text-white mb-2">{matchData.teamB}</h3>
-                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2">{ptB}</div>
-                                <div className="text-slate-400 text-sm mb-4">Sets: {matchData.setsB.filter((s,i) => s > matchData.setsA[i]).length}</div>
+                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2 min-h-[5rem]">{ptB || '\u00A0'}</div>
                                 <button onClick={() => handlePoint('B')} disabled={!!matchData.winner} className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-xl shadow-lg btn-press">
                                     得分 +1
                                 </button>
@@ -468,9 +491,16 @@
                             </table>
                         </div>
 
-                        <div className="flex justify-between items-center pt-4 border-t border-slate-700">
-                            <button onClick={toggleServer} className="text-slate-400 hover:text-white text-sm"><i className="fas fa-exchange-alt mr-1"></i> 手動換發球</button>
-                            <button onClick={deleteMatch} className="text-red-400 hover:text-red-300 text-sm"><i className="fas fa-trash mr-1"></i> 刪除比賽</button>
+                        <div className="flex flex-wrap gap-3 justify-between items-center pt-4 border-t border-slate-700">
+                            <button onClick={undoLastPoint} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded shadow flex items-center justify-center">
+                                <i className="fas fa-undo mr-2"></i> 上一步 (Undo)
+                            </button>
+                            <button onClick={toggleServer} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded shadow flex items-center justify-center">
+                                <i className="fas fa-exchange-alt mr-2"></i> 換發球
+                            </button>
+                            <button onClick={deleteMatch} className="flex-1 bg-red-900/50 hover:bg-red-800/50 text-red-300 py-2 rounded shadow flex items-center justify-center">
+                                <i className="fas fa-trash mr-2"></i> 刪除
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -546,6 +576,65 @@
         };
 
         // ==========================================
+        // 組件: 回顧模式 (Review/History)
+        // ==========================================
+        const TennisReviewMode = ({ matchData }) => {
+            const history = matchData.history || [];
+            const reversedHistory = [...history].reverse();
+
+            return (
+                <div className="p-4 max-w-4xl mx-auto">
+                    <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-green-400"><i className="fas fa-history mr-2"></i>比賽紀錄</h2>
+                                <div className="text-white text-lg mt-1">{matchData.title}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-sm text-slate-400">當前局數</div>
+                                <div className="font-bold text-xl">{matchData.setsA.join('-')} vs {matchData.setsB.join('-')}</div>
+                            </div>
+                        </div>
+
+                        {reversedHistory.length === 0 ? (
+                            <div className="text-center text-slate-500 py-10">尚無紀錄</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-slate-700 text-slate-400 text-sm">
+                                            <th className="py-2 px-3">時間</th>
+                                            <th className="py-2 px-3">事件</th>
+                                            <th className="py-2 px-3">詳情</th>
+                                            <th className="py-2 px-3 text-right">當時比分 (Set | Pt)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm">
+                                        {reversedHistory.map((item, idx) => {
+                                            const time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                            return (
+                                                <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
+                                                    <td className="py-3 px-3 font-mono text-slate-500">{time}</td>
+                                                    <td className="py-3 px-3 text-white">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${item.action.includes('Match') ? 'bg-yellow-900 text-yellow-400' : (item.action.includes('Set') ? 'bg-green-900 text-green-400' : 'bg-slate-700')}`}>
+                                                            {item.action}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-3 text-slate-300">{item.detail}</td>
+                                                    <td className="py-3 px-3 text-right font-mono text-yellow-500">{item.scoreSnapshot}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
         // 主應用程式 (App)
         // ==========================================
         const App = () => {
@@ -588,6 +677,13 @@
                 setView('match');
             };
 
+            const switchMode = (newMode) => {
+                if (newMode === 'referee' && currentMatchData?.password) {
+                    if (prompt("請輸入密碼解鎖：") !== currentMatchData.password) return alert("密碼錯誤");
+                }
+                setMode(newMode);
+            };
+
             if (!user) return <div className="h-screen flex items-center justify-center">Loading...</div>;
 
             if (view === 'home') {
@@ -625,6 +721,7 @@
                                     </div>
                                     <div className="flex gap-2">
                                         <button onClick={() => enterMatch(m.id, 'display')} className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-blue-300"><i className="fas fa-tv mr-1"></i>顯示</button>
+                                        <button onClick={() => enterMatch(m.id, 'review')} className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-green-300"><i className="fas fa-history mr-1"></i>紀錄</button>
                                         <button onClick={() => enterMatch(m.id, 'referee')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold text-white">裁判台</button>
                                     </div>
                                 </div>
@@ -648,13 +745,15 @@
                         <nav className="bg-slate-800 p-4 border-b border-slate-700 flex justify-between">
                             <button onClick={() => setView('home')} className="text-slate-400 hover:text-white"><i className="fas fa-chevron-left mr-1"></i> 列表</button>
                             <div className="space-x-2">
-                                <button onClick={() => setMode('referee')} className={`px-4 py-1 rounded ${mode === 'referee' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>裁判</button>
-                                <button onClick={() => setMode('display')} className="px-4 py-1 rounded text-slate-400 hover:text-white">大螢幕</button>
+                                <button onClick={() => switchMode('referee')} className={`px-4 py-1 rounded ${mode === 'referee' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>裁判</button>
+                                <button onClick={() => switchMode('display')} className="px-4 py-1 rounded text-slate-400 hover:text-white">大螢幕</button>
+                                <button onClick={() => switchMode('review')} className={`px-4 py-1 rounded ${mode === 'review' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>紀錄</button>
                             </div>
                             <button className="text-slate-400"><i className="fas fa-share-alt"></i></button>
                         </nav>
                         <div className="flex-1 overflow-y-auto">
-                            <TennisRefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />
+                            {mode === 'referee' && <TennisRefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}
+                            {mode === 'review' && <TennisReviewMode matchData={currentMatchData} />}
                         </div>
                     </div>
                 );
