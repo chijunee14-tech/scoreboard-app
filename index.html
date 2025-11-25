@@ -316,6 +316,15 @@
                 if (winner === 'A') d.scoreA++;
                 else d.scoreB++;
 
+                // 2.1 處理 Tiebreak 發球規則（第一球後，每兩球換發球）
+                if (isTb || d.matchType === 'tiebreak') {
+                    const totalPoints = d.scoreA + d.scoreB;
+                    // 第1球後換發球，之後每2球換發球（1, 3, 5, 7...）
+                    if (totalPoints === 1 || (totalPoints > 1 && (totalPoints - 1) % 2 === 0)) {
+                        d.server = d.server === 'A' ? 'B' : 'A';
+                    }
+                }
+
                 let gameWon = false;
                 let setWon = false;
                 let matchWon = false;
@@ -358,7 +367,10 @@
                                 d.isTieBreak = true;
                             }
                         }
-                        d.server = d.server === 'A' ? 'B' : 'A';
+                        // 非 tiebreak 模式，每局結束後換發球
+                        if (!d.isTieBreak) {
+                            d.server = d.server === 'A' ? 'B' : 'A';
+                        }
                     }
 
                     if (setWon) {
