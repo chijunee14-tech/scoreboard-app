@@ -1,0 +1,117 @@
+:root {
+    --score-size-xl: 5rem;
+    --score-size-lg: 4rem;
+    --score-size-md: 3rem;
+    --player-name-size: 2xl;
+}
+
+/* 手機螢幕優化 */
+@media (max-width: 640px) {
+    :root {
+        --score-size-xl: 3rem;
+        --score-size-lg: 2.5rem;
+        --score-size-md: 2rem;
+    }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+    :root {
+        --score-size-xl: 4rem;
+        --score-size-lg: 3rem;
+        --score-size-md: 2.5rem;
+    }
+}
+
+body {
+    background-color: #0f172a; /* Slate 900 */
+    color: #ffffff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.digital-font {
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1e293b; 
+}
+
+::-webkit-scrollbar-thumb {
+    background: #475569; 
+    border-radius: 4px;
+}
+
+.tennis-grid {
+    display: grid;
+    grid-template-columns: 3fr repeat(5, 1fr) 1.5fr;
+}
+
+/* 手機版本的 Grid 優化 */
+@media (max-width: 1024px) {
+    .tennis-grid {
+        grid-template-columns: 2.5fr repeat(3, 1fr) 1.2fr;
+    }
+    .tennis-grid > div:nth-child(n+6):not(:nth-child(8)) {
+        display: none; /* 隱藏第4、5盤在小螢幕 */
+    }
+}
+
+@media (max-width: 640px) {
+    .tennis-grid {
+        grid-template-columns: 2fr 1fr 1fr 1fr;
+    }
+    .tennis-grid > div:nth-child(n+5):not(:nth-child(8)) {
+        display: none; /* 手機只顯示前2盤 */
+    }
+}
+
+.tennis-point {
+    color: #facc15; /* Yellow-400 */
+}
+
+.server-ball {
+    color: #facc15;
+    animation: bounce 1s infinite;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+.status-live {
+    color: #10b981; /* Green-500 */
+    animation: blink 1.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* 響應式字體大小 */
+.score-display {
+    font-size: clamp(3rem, 10vw, 5rem);
+}
+
+.display-score {
+    font-size: clamp(4rem, 12vw, 8rem);
+}
+
+.player-name-referee {
+    font-size: clamp(1rem, 3.5vw, 1.5rem);
+}
+
+.player-name-display {
+    font-size: clamp(1.5rem, 4.5vw, 3rem);
+}
+
+.set-score-display {
+    font-size: clamp(2rem, 6vw, 4rem);
+}

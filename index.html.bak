@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase 網球記分板</title>
+    
+    <!-- External CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+
+    <!-- Application Scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    
+    <!-- React Components (JSX) -->
+    <script type="text/babel" src="js/components/ParticipantSelector.js"></script>
+    <script type="text/babel" src="js/components/CreateMatchModal.js"></script>
+    <script type="text/babel" src="js/components/TennisRefereeMode.js"></script>
+    <script type="text/babel" src="js/components/TennisDisplayMode.js"></script>
+    <script type="text/babel" src="js/components/TennisReviewMode.js"></script>
+    <script type="text/babel" src="js/app.js"></script>
+</body>
+</html>
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // ==========================================
+        // Firebase Config
+        // ==========================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyDEIqjG6E6szWA2m_-UNsBVUV9p_OpHIEI",
+          authDomain: "score-board-33f85.firebaseapp.com",
+          projectId: "score-board-33f85",
+          storageBucket: "score-board-33f85.firebasestorage.app",
+          messagingSenderId: "584844612174",
+          appId: "1:584844612174:web:63dc7c2d70b3e57767a91f",
+          measurementId: "G-6LFECKTTB4"
+        };
+
+        const app = firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        auth.signInAnonymously().catch(err => console.error("Auth Error", err));
+
+        const APP_ID = 'score-board-global-v1';
+
+        // ==========================================
+        // Tennis Logic Helpers
+        // ==========================================
+        const MATCH_MODES = {
+            'tiebreak': { name: '搶十決勝 (Tie-break Only)', sets: 1, targetGames: 0, tiebreakTarget: 10 },
+            '1set':     { name: '單盤決勝 (1 Set)', sets: 1, targetGames: 6, tiebreakTarget: 7 },
+            '3set':     { name: '三盤兩勝 (Best of 3)', sets: 3, targetGames: 6, tiebreakTarget: 7 },
+            '5set':     { name: '五盤三勝 (Best of 5)', sets: 5, targetGames: 6, tiebreakTarget: 7 },
+        };
+
+        const formatTennisPoint = (pA, pB, isTieBreak) => {
+            if (isTieBreak) return pA; // 搶七直接顯示數字
+            
+            // Deuce Logic (3 = 40分)
+            if (pA >= 3 && pB >= 3) {
+                if (pA === pB) return '40'; // Deuce 雙方顯示 40
+                if (pA > pB) return 'AD';   // 領先者顯示 AD
+                return '';                  // 落後者顯示 空白
+            }
+
+            // Normal Scoring
+            switch(pA) {
+                case 0: return '0';
+                case 1: return '15';
+                case 2: return '30';
+                case 3: return '40';
+                default: return '0';
+            }
+        };
+
+        // ==========================================
+        // 組件: 參與者選擇器
+        // ==========================================
+        const ParticipantSelector = ({ label, onSelect, appId, exclude = [] }) => {
+            const [participants, setParticipants] = useState([]);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const q = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('participants');
+                const unsub = q.onSnapshot(snapshot => {
+                    const list = snapshot.docs.map(doc => doc.data().name);
+                    list.sort((a, b) => a.localeCompare(b));
+                    setParticipants(list);
+                    setLoading(false);
+                });
+                return () => unsub();
+            }, [appId]);
+
+            const filteredList = useMemo(() => {
+                return participants.filter(p => 
+                    p.toLowerCase().includes(searchTerm.toLowerCase()) && 
+                    !exclude.includes(p)
+                );
+            }, [participants, searchTerm, exclude]);
+
+            const handleAddNew = async () => {
+                const nameToAdd = searchTerm.trim();
+                if (!nameToAdd) return;
+                try {
+                    if (!participants.includes(nameToAdd)) {
+                        await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('participants').add({
+                            name: nameToAdd,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    onSelect(nameToAdd);
+                } catch (err) { alert(err.message); }
+            };
+
+            return (
+                <div className="flex flex-col h-full">
+                    <h3 className="text-xl font-bold text-blue-400 mb-4">{label}</h3>
+                    <div className="relative mb-4">
+                        <input
+                            type="text"
+                            placeholder="搜尋或輸入新名稱..."
+                            className="w-full bg-slate-700 border border-slate-600 rounded p-3 pl-10 text-white focus:border-blue-500 focus:outline-none"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            autoFocus
+                        />
+                        <i className="fas fa-search absolute left-3 top-3.5 text-gray-400"></i>
+                    </div>
+                    <div className="flex-1 overflow-y-auto bg-slate-800 rounded border border-slate-700 p-2 min-h-[200px]">
+                        {searchTerm && !participants.some(p => p.toLowerCase() === searchTerm.toLowerCase()) && (
+                            <button onClick={handleAddNew} className="text-left w-full p-3 bg-blue-900/30 border border-blue-500/50 rounded text-blue-300 flex items-center mb-2">
+                                <div className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center mr-3"><i className="fas fa-plus text-xs"></i></div>
+                                <span>新增 "{searchTerm}"</span>
+                            </button>
+                        )}
+                        {filteredList.map(name => (
+                            <button key={name} onClick={() => onSelect(name)} className="text-left w-full p-3 hover:bg-slate-700 rounded border-b border-slate-700/50 flex justify-between">
+                                <span>{name}</span><i className="fas fa-chevron-right text-slate-500"></i>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 組件: 新增比賽精靈
+        // ==========================================
+        const CreateMatchModal = ({ onClose, onComplete, appId, user }) => {
+            const [step, setStep] = useState(1); 
+            const [data, setData] = useState({ title: '', matchType: '3set', teamA: '', teamB: '', password: '' });
+
+            const createMatch = async () => {
+                try {
+                    // 初始化網球數據結構
+                    const initialMatchData = {
+                        title: data.title,
+                        matchType: data.matchType,
+                        teamA: data.teamA,
+                        teamB: data.teamB,
+                        scoreA: 0, 
+                        scoreB: 0,
+                        setsA: [0], 
+                        setsB: [0],
+                        currentSetIndex: 0,
+                        isTieBreak: data.matchType === 'tiebreak', 
+                        server: 'A', 
+                        winner: null,
+                        undoStack: [], // 新增 undo stack (限制大小)
+                        password: data.password || null,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: user.uid,
+                        sport: 'tennis'
+                    };
+
+                    const docRef = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').add(initialMatchData);
+                    onComplete(docRef.id);
+                } catch (err) { alert("建立失敗: " + err.message); }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700 flex flex-col max-h-[90vh]">
+                        <div className="bg-slate-900 p-4 flex justify-between items-center border-b border-slate-700">
+                            <h2 className="text-lg font-bold text-white">建立網球比賽</h2>
+                            <button onClick={onClose}><i className="fas fa-times text-slate-400"></i></button>
+                        </div>
+                        <div className="flex h-1 bg-slate-700">
+                            <div className="bg-yellow-500 transition-all duration-300" style={{ width: `${(step/5)*100}%` }}></div>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto">
+                            {step === 1 && (
+                                <form onSubmit={(e) => { e.preventDefault(); if(data.title.trim()) setStep(2); }}>
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 1: 比賽標題</h3>
+                                    <input className="w-full bg-slate-700 border border-slate-600 rounded p-3 text-white mb-6" autoFocus value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="例: 溫布頓決賽" />
+                                    <button type="submit" disabled={!data.title.trim()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold">下一步</button>
+                                </form>
+                            )}
+                            {step === 2 && (
+                                <div>
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 2: 選擇賽制</h3>
+                                    <div className="space-y-3">
+                                        {Object.entries(MATCH_MODES).map(([key, mode]) => (
+                                            <button key={key} onClick={() => { setData({...data, matchType: key}); setStep(3); }}
+                                                className={`w-full text-left p-4 rounded border ${data.matchType === key ? 'bg-blue-900/50 border-blue-500 ring-1 ring-blue-500' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}>
+                                                <div className="font-bold">{mode.name}</div>
+                                                <div className="text-xs text-slate-400 mt-1">
+                                                    {key === 'tiebreak' ? '一局定勝負 (搶10)' : `${mode.sets === 1 ? '一盤決勝' : `最多 ${mode.sets} 盤`} · 6局制`}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {step === 3 && <ParticipantSelector label="步驟 3: 主隊/選手 A" appId={appId} onSelect={(name) => { setData({...data, teamA: name}); setStep(4); }} />}
+                            {step === 4 && <ParticipantSelector label="步驟 4: 客隊/選手 B" appId={appId} exclude={[data.teamA]} onSelect={(name) => { setData({...data, teamB: name}); setStep(5); }} />}
+                            {step === 5 && (
+                                <div>
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 5: 確認與密碼</h3>
+                                    <div className="bg-slate-900 p-4 rounded border border-slate-700 mb-4 text-sm space-y-2">
+                                        <div className="flex justify-between"><span className="text-slate-400">賽制</span><span>{MATCH_MODES[data.matchType].name}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-400">選手 A</span><span className="font-bold text-white">{data.teamA}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-400">選手 B</span><span className="font-bold text-white">{data.teamB}</span></div>
+                                    </div>
+                                    <input className="w-full bg-slate-700 border border-slate-600 rounded p-3 text-white mb-6" placeholder="裁判密碼 (選填)" value={data.password} onChange={e => setData({...data, password: e.target.value})} />
+                                    <button onClick={createMatch} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded font-bold shadow-lg">建立比賽</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 組件: 網球裁判模式 (核心邏輯)
+        // ==========================================
+        const TennisRefereeMode = ({ matchData, matchId, appId }) => {
+            
+            const handlePoint = async (winner) => {
+                if (matchData.winner) return;
+
+                const d = { ...matchData };
+                
+                // 1. 建立當前狀態的快照 (Snapshot) 用於 Undo
+                const snapshot = {
+                    scoreA: d.scoreA,
+                    scoreB: d.scoreB,
+                    setsA: [...d.setsA], // Copy array
+                    setsB: [...d.setsB], // Copy array
+                    currentSetIndex: d.currentSetIndex,
+                    isTieBreak: d.isTieBreak,
+                    server: d.server,
+                    winner: d.winner
+                };
+
+                // 限制 undoStack 大小為最近 20 步
+                const currentStack = d.undoStack || [];
+                const undoStack = [...currentStack.slice(-19), snapshot];
+
+                const mode = MATCH_MODES[d.matchType];
+                const setIdx = d.currentSetIndex;
+                const isTb = d.isTieBreak;
+
+                // 2. 增加分數
+                if (winner === 'A') d.scoreA++;
+                else d.scoreB++;
+
+                // 2.1 處理 Tiebreak 發球規則（第一球後，每兩球換發球）
+                if (isTb || d.matchType === 'tiebreak') {
+                    const totalPoints = d.scoreA + d.scoreB;
+                    // 第1球後換發球，之後每2球換發球（1, 3, 5, 7...）
+                    if (totalPoints === 1 || (totalPoints > 1 && (totalPoints - 1) % 2 === 0)) {
+                        d.server = d.server === 'A' ? 'B' : 'A';
+                    }
+                }
+
+                let gameWon = false;
+                let setWon = false;
+                let matchWon = false;
+
+                // 3. 判斷是否贏得這局 (Game)
+                if (isTb) {
+                    const target = d.matchType === 'tiebreak' ? mode.tiebreakTarget : 7;
+                    if ((winner === 'A' ? d.scoreA : d.scoreB) >= target && Math.abs(d.scoreA - d.scoreB) >= 2) {
+                        gameWon = true;
+                    }
+                } else {
+                    if ((winner === 'A' ? d.scoreA : d.scoreB) >= 4 && Math.abs(d.scoreA - d.scoreB) >= 2) {
+                        gameWon = true;
+                    }
+                }
+
+                if (gameWon) {
+                    d.scoreA = 0;
+                    d.scoreB = 0;
+                    
+                    if (d.matchType === 'tiebreak') {
+                        matchWon = true;
+                        setWon = true;
+                        d.setsA[setIdx] = winner === 'A' ? 1 : 0;
+                        d.setsB[setIdx] = winner === 'B' ? 1 : 0;
+                    } else {
+                        if (winner === 'A') d.setsA[setIdx]++;
+                        else d.setsB[setIdx]++;
+
+                        const gamesA = d.setsA[setIdx];
+                        const gamesB = d.setsB[setIdx];
+
+                        if (d.isTieBreak) {
+                            setWon = true;
+                            d.isTieBreak = false;
+                        } else {
+                            if ((winner === 'A' ? gamesA : gamesB) >= mode.targetGames && Math.abs(gamesA - gamesB) >= 2) {
+                                setWon = true;
+                            } else if (gamesA === 6 && gamesB === 6) {
+                                d.isTieBreak = true;
+                            }
+                        }
+                        // 非 tiebreak 模式，每局結束後換發球
+                        if (!d.isTieBreak) {
+                            d.server = d.server === 'A' ? 'B' : 'A';
+                        }
+                    }
+
+                    if (setWon) {
+                        let setsWonA = 0;
+                        let setsWonB = 0;
+                        d.setsA.forEach((s, i) => { if (s > d.setsB[i]) setsWonA++; else if (d.setsB[i] > s) setsWonB++; });
+                        
+                        const setsToWin = Math.ceil(mode.sets / 2);
+                        if (setsWonA >= setsToWin || setsWonB >= setsToWin) {
+                            matchWon = true;
+                            d.winner = setsWonA > setsWonB ? 'A' : 'B';
+                        } else {
+                            d.currentSetIndex++;
+                            d.setsA.push(0);
+                            d.setsB.push(0);
+                            d.isTieBreak = false;
+                        }
+                    }
+                }
+
+                // 4. Log History to subcollection (非阻塞式寫入)
+                const log = {
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
+                    detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
+                    scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
+                };
+
+                console.log('Creating history log:', log);
+                console.log('Match ID:', matchId);
+                console.log('App ID:', appId);
+
+                // 5. Update Firestore (批次操作)
+                const batch = db.batch();
+                
+                // 更新主文件 (不含 history)
+                const matchRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId);
+                console.log('Match ref path:', matchRef.path);
+                batch.update(matchRef, {
+                    scoreA: d.scoreA,
+                    scoreB: d.scoreB,
+                    setsA: d.setsA,
+                    setsB: d.setsB,
+                    currentSetIndex: d.currentSetIndex,
+                    isTieBreak: d.isTieBreak,
+                    server: d.server,
+                    winner: d.winner || null,
+                    undoStack: undoStack,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // 新增歷史記錄到子集合
+                const historyRef = matchRef.collection('history').doc();
+                batch.set(historyRef, log);
+                
+                console.log('Committing batch with history to:', historyRef.path);
+                await batch.commit();
+                console.log('Batch committed successfully');
+            };
+
+            // Undo Function
+            const undoLastPoint = async () => {
+                if (!matchData.undoStack || matchData.undoStack.length === 0) {
+                    alert("已經是最早的狀態，無法復原。");
+                    return;
+                }
+                
+                const previousState = matchData.undoStack[matchData.undoStack.length - 1];
+                const newStack = matchData.undoStack.slice(0, -1); // Pop
+
+                try {
+                    // 1. 取得最新的 history 記錄
+                    const historyRef = db.collection('artifacts')
+                        .doc(appId)
+                        .collection('public')
+                        .doc('data')
+                        .collection('matches')
+                        .doc(matchId)
+                        .collection('history');
+                    
+                    const latestHistorySnapshot = await historyRef
+                        .orderBy('timestamp', 'desc')
+                        .limit(1)
+                        .get();
+                    
+                    // 2. 使用批次操作更新比賽狀態和刪除記錄
+                    const batch = db.batch();
+                    
+                    // 更新比賽狀態
+                    const matchRef = db.collection('artifacts')
+                        .doc(appId)
+                        .collection('public')
+                        .doc('data')
+                        .collection('matches')
+                        .doc(matchId);
+                    
+                    batch.update(matchRef, {
+                        scoreA: previousState.scoreA,
+                        scoreB: previousState.scoreB,
+                        setsA: previousState.setsA,
+                        setsB: previousState.setsB,
+                        currentSetIndex: previousState.currentSetIndex,
+                        isTieBreak: previousState.isTieBreak,
+                        server: previousState.server,
+                        winner: previousState.winner,
+                        undoStack: newStack
+                    });
+                    
+                    // 刪除最新的 history 記錄
+                    if (!latestHistorySnapshot.empty) {
+                        const latestHistoryDoc = latestHistorySnapshot.docs[0];
+                        batch.delete(latestHistoryDoc.ref);
+                    }
+                    
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Undo error:', error);
+                    alert('復原失敗：' + error.message);
+                }
+            };
+
+            // 手動換發球
+            const toggleServer = async () => {
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                    server: matchData.server === 'A' ? 'B' : 'A'
+                });
+            };
+
+             const deleteMatch = async () => {
+                if(!confirm("⚠️ 危險操作：您確定要「永久刪除」這場比賽嗎？")) return;
+                if (matchData.password) {
+                    if (prompt("請輸入密碼：") !== matchData.password) return alert("密碼錯誤");
+                }
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).delete();
+            };
+
+            const ptA = formatTennisPoint(matchData.scoreA, matchData.scoreB, matchData.isTieBreak);
+            const ptB = formatTennisPoint(matchData.scoreB, matchData.scoreA, matchData.isTieBreak);
+
+            return (
+                <div className="p-2 sm:p-4 max-w-4xl mx-auto">
+                    <div className="bg-slate-800 rounded-xl p-3 sm:p-6 shadow-lg border border-slate-700">
+                        <div className="flex justify-between items-start mb-3 sm:mb-6">
+                            <div>
+                                <h2 className="text-base sm:text-xl font-bold text-yellow-400"><i className="fas fa-gavel mr-1 sm:mr-2"></i>網球裁判台</h2>
+                                <h3 className="text-sm sm:text-base text-white font-bold truncate">{matchData.title}</h3>
+                                <div className="text-xs text-slate-400 mt-1">
+                                    {MATCH_MODES[matchData.matchType]?.name}
+                                    {matchData.isTieBreak && <span className="ml-2 text-red-400 font-bold animate-pulse">● TIE-BREAK</span>}
+                                    {matchData.winner && <span className="ml-2 text-green-400 font-bold">● 完賽</span>}
+                                </div>
+                            </div>
+                            {matchData.password && <span className="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800"><i className="fas fa-lock mr-1"></i>Protected</span>}
+                        </div>
+
+                        {/* Main Scoreboard Area */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6 mb-4 sm:mb-8">
+                            {/* Player A */}
+                            <div className={`relative p-3 sm:p-6 rounded-xl border-2 transition ${matchData.winner === 'A' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
+                                {matchData.server === 'A' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-2 sm:top-4 left-2 sm:left-4 text-yellow-400 animate-bounce text-sm sm:text-base"></i>}
+                                <h3 className="player-name-referee font-bold text-white mb-1 sm:mb-2 truncate w-full text-center">{matchData.teamA}</h3>
+                                <div className="score-display leading-none font-mono font-bold text-blue-400 my-1 sm:my-2">{ptA !== '' && ptA !== null && ptA !== undefined ? ptA : '\u00A0'}</div>
+                                <button onClick={() => handlePoint('A')} disabled={!!matchData.winner} className="w-full py-3 sm:py-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-base sm:text-xl shadow-lg btn-press touch-manipulation">
+                                    得分 +1
+                                </button>
+                            </div>
+
+                            {/* Player B */}
+                            <div className={`relative p-3 sm:p-6 rounded-xl border-2 transition ${matchData.winner === 'B' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
+                                {matchData.server === 'B' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-2 sm:top-4 left-2 sm:left-4 text-yellow-400 animate-bounce text-sm sm:text-base"></i>}
+                                <h3 className="player-name-referee font-bold text-white mb-1 sm:mb-2 truncate w-full text-center">{matchData.teamB}</h3>
+                                <div className="score-display leading-none font-mono font-bold text-blue-400 my-1 sm:my-2">{ptB !== '' && ptB !== null && ptB !== undefined ? ptB : '\u00A0'}</div>
+                                <button onClick={() => handlePoint('B')} disabled={!!matchData.winner} className="w-full py-3 sm:py-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-base sm:text-xl shadow-lg btn-press touch-manipulation">
+                                    得分 +1
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Sets Detail */}
+                        <div className="bg-slate-900 p-2 sm:p-4 rounded-lg mb-3 sm:mb-6 overflow-x-auto">
+                            <table className="w-full text-center border-collapse">
+                                <thead>
+                                    <tr className="text-slate-500 text-xs uppercase">
+                                        <th className="text-left p-1 sm:p-2 text-xs sm:text-sm">Player</th>
+                                        {matchData.setsA.map((_, i) => <th key={i} className="p-1 sm:p-2 w-8 sm:w-12 text-xs sm:text-sm">S{i+1}</th>)}
+                                    </tr>
+                                </thead>
+                                <tbody className="font-mono text-base sm:text-lg">
+                                    <tr className="border-b border-slate-800">
+                                        <td className="text-left p-1 sm:p-2 font-bold text-white text-sm sm:text-base truncate max-w-[100px]">{matchData.teamA}</td>
+                                        {matchData.setsA.map((s, i) => <td key={i} className={`p-1 sm:p-2 ${i === matchData.currentSetIndex ? 'text-yellow-400' : 'text-slate-400'}`}>{s}</td>)}
+                                    </tr>
+                                    <tr>
+                                        <td className="text-left p-1 sm:p-2 font-bold text-white text-sm sm:text-base truncate max-w-[100px]">{matchData.teamB}</td>
+                                        {matchData.setsB.map((s, i) => <td key={i} className={`p-1 sm:p-2 ${i === matchData.currentSetIndex ? 'text-yellow-400' : 'text-slate-400'}`}>{s}</td>)}
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-between items-stretch pt-3 sm:pt-4 border-t border-slate-700">
+                            <button onClick={undoLastPoint} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                                <i className="fas fa-undo mr-1 sm:mr-2"></i> 上一步
+                            </button>
+                            <button onClick={toggleServer} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                                <i className="fas fa-exchange-alt mr-1 sm:mr-2"></i> 換發球
+                            </button>
+                            <button onClick={deleteMatch} className="flex-1 bg-red-900/50 hover:bg-red-800/50 active:bg-red-700/50 text-red-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                                <i className="fas fa-trash mr-1 sm:mr-2"></i> 刪除
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 組件: 網球顯示模式 (Classic Scoreboard)
+        // ==========================================
+        const TennisDisplayMode = ({ matchData }) => {
+            const ptA = formatTennisPoint(matchData.scoreA, matchData.scoreB, matchData.isTieBreak);
+            const ptB = formatTennisPoint(matchData.scoreB, matchData.scoreA, matchData.isTieBreak);
+
+            return (
+                <div className="h-full flex flex-col items-center justify-center bg-black p-2 sm:p-4">
+                     <div className="text-slate-500 text-lg sm:text-2xl md:text-3xl font-bold mb-4 sm:mb-8 uppercase tracking-wider sm:tracking-[0.5em] text-center">
+                        {matchData.title}
+                    </div>
+
+                    <div className="w-full max-w-7xl bg-slate-900 border-2 sm:border-4 border-slate-700 rounded-lg overflow-hidden shadow-2xl">
+                        {/* Header Row */}
+                        <div className="tennis-grid bg-slate-800 text-slate-400 font-bold text-xs sm:text-base md:text-xl py-2 sm:py-4 border-b border-slate-700">
+                            <div className="pl-2 sm:pl-4 md:pl-8 flex items-center text-xs sm:text-sm md:text-base">PLAYER</div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className="text-center flex items-center justify-center text-xs sm:text-sm md:text-base">
+                                    {i < matchData.setsA.length ? `S${i+1}` : ''}
+                                </div>
+                            ))}
+                            <div className="text-center bg-slate-700 text-white flex items-center justify-center text-xs sm:text-sm md:text-base">PT</div>
+                        </div>
+
+                        {/* Player A Row */}
+                        <div className="tennis-grid py-2 border-b border-slate-800 items-center h-24 sm:h-32 md:h-48">
+                            <div className="pl-2 sm:pl-4 md:pl-8 player-name-display font-bold text-white flex items-center gap-2 sm:gap-4 truncate">
+                                <span className="truncate">{matchData.teamA}</span>
+                                {matchData.server === 'A' && !matchData.winner && <div className="w-2 h-2 sm:w-3 sm:h-3 md:w-4 md:h-4 rounded-full bg-yellow-400 shadow-[0_0_10px_yellow] flex-shrink-0"></div>}
+                            </div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className={`text-center set-score-display font-mono font-bold ${i === matchData.currentSetIndex ? 'text-white' : 'text-slate-600'}`}>
+                                    {matchData.setsA[i] !== undefined ? matchData.setsA[i] : ''}
+                                </div>
+                            ))}
+                            <div className="bg-black/30 h-full flex items-center justify-center px-1">
+                                <span className={`display-score font-mono font-bold ${matchData.isTieBreak ? 'text-red-500' : 'text-yellow-400'}`}>
+                                    {ptA}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Player B Row */}
+                        <div className="tennis-grid py-2 items-center h-24 sm:h-32 md:h-48">
+                            <div className="pl-2 sm:pl-4 md:pl-8 player-name-display font-bold text-white flex items-center gap-2 sm:gap-4 truncate">
+                                <span className="truncate">{matchData.teamB}</span>
+                                {matchData.server === 'B' && !matchData.winner && <div className="w-2 h-2 sm:w-3 sm:h-3 md:w-4 md:h-4 rounded-full bg-yellow-400 shadow-[0_0_10px_yellow] flex-shrink-0"></div>}
+                            </div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className={`text-center set-score-display font-mono font-bold ${i === matchData.currentSetIndex ? 'text-white' : 'text-slate-600'}`}>
+                                    {matchData.setsB[i] !== undefined ? matchData.setsB[i] : ''}
+                                </div>
+                            ))}
+                            <div className="bg-black/30 h-full flex items-center justify-center px-1">
+                                <span className={`display-score font-mono font-bold ${matchData.isTieBreak ? 'text-red-500' : 'text-yellow-400'}`}>
+                                    {ptB}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {matchData.isTieBreak && <div className="mt-3 sm:mt-6 text-red-500 text-base sm:text-xl md:text-2xl font-bold animate-pulse">TIE-BREAK</div>}
+                    {matchData.winner && <div className="mt-3 sm:mt-6 text-yellow-400 text-xl sm:text-2xl md:text-4xl font-bold text-center px-2">WINNER: {matchData.winner === 'A' ? matchData.teamA : matchData.teamB}</div>}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 組件: 回顧模式 (Review/History)
+        // ==========================================
+        const TennisReviewMode = ({ matchData, matchId, appId }) => {
+            const [history, setHistory] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            const exportToCSV = () => {
+                // 準備 CSV 標題
+                const headers = ['時間', '事件', '詳情', '當時比分'];
+                
+                // 準備 CSV 資料行
+                const rows = history.map(item => {
+                    let time = '--:--:--';
+                    try {
+                        if (item.timestamp?.toDate) {
+                            time = item.timestamp.toDate().toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                        } else if (item.timestamp) {
+                            time = new Date(item.timestamp).toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Timestamp parsing error:', e);
+                    }
+                    
+                    // 處理欄位中的逗號和引號，避免 CSV 格式錯誤
+                    const escapeCSV = (str) => {
+                        if (typeof str !== 'string') str = String(str);
+                        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                            return `"${str.replace(/"/g, '""')}"`;
+                        }
+                        return str;
+                    };
+                    
+                    return [
+                        escapeCSV(time),
+                        escapeCSV(item.action || ''),
+                        escapeCSV(item.detail || ''),
+                        escapeCSV(item.scoreSnapshot || '')
+                    ].join(',');
+                });
+                
+                // 組合 CSV 內容（加入 BOM 以支援 Excel 正確顯示中文）
+                const csvContent = '\uFEFF' + [
+                    `比賽名稱: ${matchData.title}`,
+                    `選手 A: ${matchData.teamA}`,
+                    `選手 B: ${matchData.teamB}`,
+                    `賽制: ${MATCH_MODES[matchData.matchType]?.name || matchData.matchType}`,
+                    `最終比分: ${matchData.setsA.join('-')} vs ${matchData.setsB.join('-')}`,
+                    `比賽狀態: ${matchData.winner ? `完賽 (勝者: ${matchData.winner === 'A' ? matchData.teamA : matchData.teamB})` : '進行中'}`,
+                    '',
+                    headers.join(','),
+                    ...rows
+                ].join('\n');
+                
+                // 建立並下載檔案
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                
+                // 生成檔案名稱（包含比賽名稱和日期）
+                const date = new Date().toISOString().split('T')[0];
+                const fileName = `${matchData.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${date}.csv`;
+                
+                link.setAttribute('href', url);
+                link.setAttribute('download', fileName);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            };
+
+            useEffect(() => {
+                // 從子集合即時監聽 history
+                // 注意：移除 orderBy 以避免需要索引，改為在客戶端排序
+                console.log('Setting up history listener for match:', matchId);
+                const historyCollectionRef = db.collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('matches')
+                    .doc(matchId)
+                    .collection('history');
+                
+                console.log('History collection path:', historyCollectionRef.path);
+                
+                const unsubscribe = historyCollectionRef
+                    .limit(100) // 只載入最近 100 筆
+                    .onSnapshot(
+                        snapshot => {
+                            console.log('History snapshot received:', snapshot.size, 'documents');
+                            console.log('Snapshot empty?', snapshot.empty);
+                            console.log('Snapshot metadata:', snapshot.metadata);
+                            
+                            const historyData = snapshot.docs.map(doc => {
+                                const data = doc.data();
+                                console.log('History item:', doc.id, data);
+                                return {
+                                    id: doc.id,
+                                    ...data
+                                };
+                            });
+                            // 在客戶端排序（最新的在前）
+                            historyData.sort((a, b) => {
+                                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                                return timeB - timeA;
+                            });
+                            setHistory(historyData);
+                            setLoading(false);
+                        },
+                        error => {
+                            console.error('Error loading history:', error);
+                            console.error('Error code:', error.code);
+                            console.error('Error message:', error.message);
+                            setLoading(false);
+                        }
+                    );
+                
+                return () => unsubscribe();
+            }, [matchId, appId]);
+
+            const reversedHistory = history;
+
+            return (
+                <div className="p-4 max-w-4xl mx-auto">
+                    <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-green-400"><i className="fas fa-history mr-2"></i>比賽紀錄</h2>
+                                <div className="text-white text-lg mt-1">{matchData.title}</div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                    <div className="text-sm text-slate-400">當前局數</div>
+                                    <div className="font-bold text-xl">{matchData.setsA.join('-')} vs {matchData.setsB.join('-')}</div>
+                                </div>
+                                <button 
+                                    onClick={exportToCSV}
+                                    disabled={history.length === 0}
+                                    className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition"
+                                    title="匯出為 CSV 檔案"
+                                >
+                                    <i className="fas fa-share-alt"></i>
+                                    <span>分享</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {loading ? (
+                            <div className="text-center py-8 text-slate-400">
+                                <i className="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                <div>載入中...</div>
+                            </div>
+                        ) : reversedHistory.length === 0 ? (
+                            <div className="text-center text-slate-500 py-10">尚無紀錄</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-slate-700 text-slate-400 text-sm">
+                                            <th className="py-2 px-3">時間</th>
+                                            <th className="py-2 px-3">事件</th>
+                                            <th className="py-2 px-3">詳情</th>
+                                            <th className="py-2 px-3 text-right">當時比分 (Set | Pt)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm">
+                                        {reversedHistory.map((item, idx) => {
+                                            let time = '--:--:--';
+                                            try {
+                                                if (item.timestamp?.toDate) {
+                                                    time = item.timestamp.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                                } else if (item.timestamp) {
+                                                    time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                                }
+                                            } catch (e) {
+                                                console.error('Timestamp parsing error:', e);
+                                            }
+                                            return (
+                                                <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
+                                                    <td className="py-3 px-3 font-mono text-slate-500">{time}</td>
+                                                    <td className="py-3 px-3 text-white">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${item.action.includes('Match') ? 'bg-yellow-900 text-yellow-400' : (item.action.includes('Set') ? 'bg-green-900 text-green-400' : 'bg-slate-700')}`}>
+                                                            {item.action}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-3 text-slate-300">{item.detail}</td>
+                                                    <td className="py-3 px-3 text-right font-mono text-yellow-500">{item.scoreSnapshot}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 主應用程式 (App)
+        // ==========================================
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('home'); 
+            const [currentMatchId, setCurrentMatchId] = useState(null);
+            const [mode, setMode] = useState('referee'); 
+            const [isCreatingMatch, setIsCreatingMatch] = useState(false);
+            
+            const [matches, setMatches] = useState([]);
+            const [currentMatchData, setCurrentMatchData] = useState(null);
+
+            useEffect(() => { auth.onAuthStateChanged(u => setUser(u)); }, []);
+
+            useEffect(() => {
+                if (!user || view !== 'home') return;
+                const q = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matches')
+                            .orderBy('createdAt', 'desc').limit(20);
+                const unsub = q.onSnapshot(snap => setMatches(snap.docs.map(doc => ({id: doc.id, ...doc.data()}))));
+                return () => unsub();
+            }, [user, view]);
+
+            useEffect(() => {
+                if (!user || view !== 'match' || !currentMatchId) return;
+                const unsub = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matches').doc(currentMatchId)
+                                .onSnapshot(doc => {
+                                    if(doc.exists) setCurrentMatchData(doc.data());
+                                    else { alert("比賽不存在"); setView('home'); }
+                                });
+                return () => unsub();
+            }, [user, view, currentMatchId]);
+
+            const enterMatch = (id, targetMode = 'referee') => {
+                const match = matches.find(m => m.id === id);
+                if (targetMode === 'referee' && match?.password) {
+                    if (prompt("請輸入密碼：") !== match.password) return alert("密碼錯誤");
+                }
+                setCurrentMatchId(id);
+                setMode(targetMode);
+                setView('match');
+            };
+
+            const switchMode = (newMode) => {
+                if (newMode === 'referee' && currentMatchData?.password) {
+                    if (prompt("請輸入密碼解鎖：") !== currentMatchData.password) return alert("密碼錯誤");
+                }
+                setMode(newMode);
+            };
+
+            if (!user) return <div className="h-screen flex items-center justify-center">Loading...</div>;
+
+            if (view === 'home') {
+                return (
+                    <div className="min-h-screen bg-slate-900 p-6">
+                        <header className="max-w-4xl mx-auto flex justify-between items-center mb-10">
+                            <h1 className="text-3xl font-bold text-white tracking-wider flex items-center">
+                                <i className="fas fa-baseball-ball text-yellow-400 mr-3"></i>
+                                Tennis Pro Score
+                            </h1>
+                            <button onClick={() => setIsCreatingMatch(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transform hover:scale-105 transition">
+                                <i className="fas fa-plus mr-2"></i>新增賽事
+                            </button>
+                        </header>
+
+                        {isCreatingMatch && (
+                            <CreateMatchModal 
+                                onClose={() => setIsCreatingMatch(false)}
+                                appId={APP_ID} user={user}
+                                onComplete={(id) => { setIsCreatingMatch(false); enterMatch(id); }}
+                            />
+                        )}
+
+                        <main className="max-w-4xl mx-auto grid gap-4">
+                            {matches.map(m => (
+                                <div key={m.id} className="bg-slate-800 p-4 rounded-lg flex items-center justify-between border border-slate-700 hover:border-blue-500 transition">
+                                    <div>
+                                        <div className="text-blue-400 font-bold">{m.title}</div>
+                                        <div className="text-xl text-white font-bold my-1">
+                                            {m.teamA} <span className="text-slate-500 text-sm mx-1">vs</span> {m.teamB}
+                                        </div>
+                                        <div className="text-xs">
+                                            <span className="text-slate-500">{MATCH_MODES[m.matchType]?.name}</span>
+                                            <span className="text-slate-500"> • </span>
+                                            <span className={m.winner ? 'text-slate-500' : 'status-live font-semibold'}>
+                                                {m.winner ? '已完賽' : '進行中'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => enterMatch(m.id, 'display')} className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-blue-300"><i className="fas fa-tv mr-1"></i>顯示</button>
+                                        <button onClick={() => enterMatch(m.id, 'review')} className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-green-300"><i className="fas fa-history mr-1"></i>紀錄</button>
+                                        <button onClick={() => enterMatch(m.id, 'referee')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold text-white">裁判台</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </main>
+                    </div>
+                );
+            }
+
+            if (view === 'match' && currentMatchData) {
+                if (mode === 'display') {
+                    return (
+                        <div className="h-screen w-screen relative bg-black">
+                            <button onClick={() => setView('home')} className="absolute top-4 left-4 text-slate-600 hover:text-white z-50"><i className="fas fa-arrow-left fa-2x"></i></button>
+                            <TennisDisplayMode matchData={currentMatchData} />
+                        </div>
+                    );
+                }
+                return (
+                    <div className="min-h-screen bg-slate-900 flex flex-col">
+                        <nav className="bg-slate-800 p-4 border-b border-slate-700 flex justify-between">
+                            <button onClick={() => setView('home')} className="text-slate-400 hover:text-white"><i className="fas fa-chevron-left mr-1"></i> 列表</button>
+                            <div className="space-x-2">
+                                <button onClick={() => switchMode('referee')} className={`px-4 py-1 rounded ${mode === 'referee' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>裁判</button>
+                                <button onClick={() => switchMode('display')} className="px-4 py-1 rounded text-slate-400 hover:text-white">大螢幕</button>
+                                <button onClick={() => switchMode('review')} className={`px-4 py-1 rounded ${mode === 'review' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>紀錄</button>
+                            </div>
+                            <button className="text-slate-400"><i className="fas fa-share-alt"></i></button>
+                        </nav>
+                        <div className="flex-1 overflow-y-auto">
+                            {mode === 'referee' && <TennisRefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}
+                            {mode === 'review' && <TennisReviewMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}
+                        </div>
+                    </div>
+                );
+            }
+            return null;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
