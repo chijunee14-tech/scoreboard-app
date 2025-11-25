@@ -441,18 +441,55 @@
                 const previousState = matchData.undoStack[matchData.undoStack.length - 1];
                 const newStack = matchData.undoStack.slice(0, -1); // Pop
 
-                // 只更新比賽狀態，不處理 history
-                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-                    scoreA: previousState.scoreA,
-                    scoreB: previousState.scoreB,
-                    setsA: previousState.setsA,
-                    setsB: previousState.setsB,
-                    currentSetIndex: previousState.currentSetIndex,
-                    isTieBreak: previousState.isTieBreak,
-                    server: previousState.server,
-                    winner: previousState.winner,
-                    undoStack: newStack
-                });
+                try {
+                    // 1. 取得最新的 history 記錄
+                    const historyRef = db.collection('artifacts')
+                        .doc(appId)
+                        .collection('public')
+                        .doc('data')
+                        .collection('matches')
+                        .doc(matchId)
+                        .collection('history');
+                    
+                    const latestHistorySnapshot = await historyRef
+                        .orderBy('timestamp', 'desc')
+                        .limit(1)
+                        .get();
+                    
+                    // 2. 使用批次操作更新比賽狀態和刪除記錄
+                    const batch = db.batch();
+                    
+                    // 更新比賽狀態
+                    const matchRef = db.collection('artifacts')
+                        .doc(appId)
+                        .collection('public')
+                        .doc('data')
+                        .collection('matches')
+                        .doc(matchId);
+                    
+                    batch.update(matchRef, {
+                        scoreA: previousState.scoreA,
+                        scoreB: previousState.scoreB,
+                        setsA: previousState.setsA,
+                        setsB: previousState.setsB,
+                        currentSetIndex: previousState.currentSetIndex,
+                        isTieBreak: previousState.isTieBreak,
+                        server: previousState.server,
+                        winner: previousState.winner,
+                        undoStack: newStack
+                    });
+                    
+                    // 刪除最新的 history 記錄
+                    if (!latestHistorySnapshot.empty) {
+                        const latestHistoryDoc = latestHistorySnapshot.docs[0];
+                        batch.delete(latestHistoryDoc.ref);
+                    }
+                    
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Undo error:', error);
+                    alert('復原失敗：' + error.message);
+                }
             };
 
             // 手動換發球
