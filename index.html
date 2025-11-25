@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase 即時記分板</title>
+    <title>Firebase 網球記分板</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
@@ -17,7 +17,7 @@
 
     <style>
         body {
-            background-color: #1a1a1a;
+            background-color: #0f172a; /* Slate 900 */
             color: #ffffff;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
@@ -30,21 +30,27 @@
             width: 8px;
         }
         ::-webkit-scrollbar-track {
-            background: #2d2d2d; 
+            background: #1e293b; 
         }
         ::-webkit-scrollbar-thumb {
-            background: #555; 
+            background: #475569; 
             border-radius: 4px;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #777; 
+        .tennis-grid {
+            display: grid;
+            grid-template-columns: 2fr repeat(5, 1fr) 1.5fr;
         }
-        .btn-press:active {
-            transform: scale(0.95);
+        .tennis-point {
+            color: #facc15; /* Yellow-400 */
         }
-        /* Modal Animation */
-        .modal-enter { opacity: 0; transform: scale(0.95); }
-        .modal-enter-active { opacity: 1; transform: scale(1); transition: opacity 200ms, transform 200ms; }
+        .server-ball {
+            color: #facc15;
+            animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
     </style>
 </head>
 <body>
@@ -79,19 +85,40 @@
         const APP_ID = 'score-board-global-v1';
 
         // ==========================================
-        // 組件: 參與者選擇器 (Participant Selector)
+        // Tennis Logic Helpers
+        // ==========================================
+        const MATCH_MODES = {
+            'tiebreak': { name: '搶十決勝 (Tie-break Only)', sets: 1, targetGames: 0, tiebreakTarget: 10 },
+            '1set':     { name: '單盤決勝 (1 Set)', sets: 1, targetGames: 6, tiebreakTarget: 7 },
+            '3set':     { name: '三盤兩勝 (Best of 3)', sets: 3, targetGames: 6, tiebreakTarget: 7 },
+            '5set':     { name: '五盤三勝 (Best of 5)', sets: 5, targetGames: 6, tiebreakTarget: 7 },
+        };
+
+        const formatTennisPoint = (pA, pB, isTieBreak) => {
+            if (isTieBreak) return pA; // 搶七直接顯示數字
+            if (pA === 0) return '0';
+            if (pA === 1) return '15';
+            if (pA === 2) return '30';
+            if (pA === 3) return '40';
+            if (pA > 3) {
+                if (pA > pB) return 'AD'; // Advantage
+                if (pA === pB) return '40'; // Deuce 顯示 40-40 或是 Deuce
+            }
+            return '0';
+        };
+
+        // ==========================================
+        // 組件: 參與者選擇器
         // ==========================================
         const ParticipantSelector = ({ label, onSelect, appId, exclude = [] }) => {
             const [participants, setParticipants] = useState([]);
             const [searchTerm, setSearchTerm] = useState('');
             const [loading, setLoading] = useState(true);
 
-            // 讀取參與者資料庫
             useEffect(() => {
                 const q = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('participants');
                 const unsub = q.onSnapshot(snapshot => {
                     const list = snapshot.docs.map(doc => doc.data().name);
-                    // 前端排序，避免 Firestore 索引問題
                     list.sort((a, b) => a.localeCompare(b));
                     setParticipants(list);
                     setLoading(false);
@@ -109,9 +136,7 @@
             const handleAddNew = async () => {
                 const nameToAdd = searchTerm.trim();
                 if (!nameToAdd) return;
-
                 try {
-                    // 檢查是否已存在 (雖然 UI 有過濾，但防呆)
                     if (!participants.includes(nameToAdd)) {
                         await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('participants').add({
                             name: nameToAdd,
@@ -119,202 +144,121 @@
                         });
                     }
                     onSelect(nameToAdd);
-                } catch (err) {
-                    alert("新增失敗: " + err.message);
-                }
+                } catch (err) { alert(err.message); }
             };
 
             return (
                 <div className="flex flex-col h-full">
                     <h3 className="text-xl font-bold text-blue-400 mb-4">{label}</h3>
-                    
                     <div className="relative mb-4">
                         <input
                             type="text"
                             placeholder="搜尋或輸入新名稱..."
-                            className="w-full bg-gray-700 border border-gray-600 rounded p-3 pl-10 text-white focus:border-blue-500 focus:outline-none"
+                            className="w-full bg-slate-700 border border-slate-600 rounded p-3 pl-10 text-white focus:border-blue-500 focus:outline-none"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             autoFocus
                         />
                         <i className="fas fa-search absolute left-3 top-3.5 text-gray-400"></i>
                     </div>
-
-                    <div className="flex-1 overflow-y-auto bg-gray-900 rounded border border-gray-700 p-2 min-h-[200px] max-h-[300px]">
-                        {loading ? (
-                            <div className="text-center text-gray-500 py-4">載入名單中...</div>
-                        ) : (
-                            <div className="grid gap-2">
-                                {/* 如果搜尋內容不在清單中，顯示新增按鈕 */}
-                                {searchTerm && !participants.some(p => p.toLowerCase() === searchTerm.toLowerCase()) && (
-                                    <button 
-                                        onClick={handleAddNew}
-                                        className="text-left w-full p-3 bg-blue-900/30 border border-blue-500/50 rounded hover:bg-blue-900/50 text-blue-300 flex items-center group"
-                                    >
-                                        <div className="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center mr-3 group-hover:scale-110 transition">
-                                            <i className="fas fa-plus"></i>
-                                        </div>
-                                        <div>
-                                            <div className="font-bold">新增 "{searchTerm}"</div>
-                                            <div className="text-xs text-blue-400">儲存到資料庫並使用</div>
-                                        </div>
-                                    </button>
-                                )}
-
-                                {filteredList.length === 0 && !searchTerm && (
-                                    <div className="text-center text-gray-500 py-8">
-                                        <p>尚未建立任何隊伍/人名</p>
-                                        <p className="text-xs mt-1">請在上方輸入名稱來新增</p>
-                                    </div>
-                                )}
-
-                                {filteredList.map(name => (
-                                    <button
-                                        key={name}
-                                        onClick={() => onSelect(name)}
-                                        className="text-left w-full p-3 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 hover:border-gray-500 flex justify-between items-center group transition"
-                                    >
-                                        <span className="font-medium">{name}</span>
-                                        <i className="fas fa-chevron-right text-gray-600 group-hover:text-white"></i>
-                                    </button>
-                                ))}
-                            </div>
+                    <div className="flex-1 overflow-y-auto bg-slate-800 rounded border border-slate-700 p-2 min-h-[200px]">
+                        {searchTerm && !participants.some(p => p.toLowerCase() === searchTerm.toLowerCase()) && (
+                            <button onClick={handleAddNew} className="text-left w-full p-3 bg-blue-900/30 border border-blue-500/50 rounded text-blue-300 flex items-center mb-2">
+                                <div className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center mr-3"><i className="fas fa-plus text-xs"></i></div>
+                                <span>新增 "{searchTerm}"</span>
+                            </button>
                         )}
+                        {filteredList.map(name => (
+                            <button key={name} onClick={() => onSelect(name)} className="text-left w-full p-3 hover:bg-slate-700 rounded border-b border-slate-700/50 flex justify-between">
+                                <span>{name}</span><i className="fas fa-chevron-right text-slate-500"></i>
+                            </button>
+                        ))}
                     </div>
                 </div>
             );
         };
 
         // ==========================================
-        // 組件: 新增比賽精靈 (Wizard)
+        // 組件: 新增比賽精靈
         // ==========================================
         const CreateMatchModal = ({ onClose, onComplete, appId, user }) => {
-            const [step, setStep] = useState(1); // 1:Title, 2:TeamA, 3:TeamB, 4:Password
-            const [data, setData] = useState({ title: '', teamA: '', teamB: '', password: '' });
-
-            const handleTitleSubmit = (e) => {
-                e.preventDefault();
-                if (!data.title.trim()) return;
-                setStep(2);
-            };
+            const [step, setStep] = useState(1); 
+            const [data, setData] = useState({ title: '', matchType: '3set', teamA: '', teamB: '', password: '' });
 
             const createMatch = async () => {
                 try {
-                    const docRef = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').add({
+                    // 初始化網球數據結構
+                    const initialMatchData = {
                         title: data.title,
+                        matchType: data.matchType,
                         teamA: data.teamA,
                         teamB: data.teamB,
-                        scoreA: 0,
+                        scoreA: 0, // 當前局分數 (0,1,2,3)
                         scoreB: 0,
+                        setsA: [0], // 每一盤的局數
+                        setsB: [0],
+                        currentSetIndex: 0,
+                        isTieBreak: data.matchType === 'tiebreak', // 搶十模式一開始就是 Tiebreak
+                        server: 'A', // 初始發球者
+                        winner: null,
                         history: [],
                         password: data.password || null,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        createdBy: user.uid
-                    });
+                        createdBy: user.uid,
+                        sport: 'tennis'
+                    };
+
+                    const docRef = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').add(initialMatchData);
                     onComplete(docRef.id);
-                } catch (err) {
-                    alert("建立失敗: " + err.message);
-                }
+                } catch (err) { alert("建立失敗: " + err.message); }
             };
 
             return (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-gray-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-700 flex flex-col max-h-[90vh]">
-                        {/* Header */}
-                        <div className="bg-gray-900 p-4 flex justify-between items-center border-b border-gray-700">
-                            <h2 className="text-lg font-bold text-white">建立新比賽</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white">
-                                <i className="fas fa-times"></i>
-                            </button>
+                    <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700 flex flex-col max-h-[90vh]">
+                        <div className="bg-slate-900 p-4 flex justify-between items-center border-b border-slate-700">
+                            <h2 className="text-lg font-bold text-white">建立網球比賽</h2>
+                            <button onClick={onClose}><i className="fas fa-times text-slate-400"></i></button>
                         </div>
-
-                        {/* Progress Bar */}
-                        <div className="flex h-1 bg-gray-700">
-                            <div className="bg-blue-500 transition-all duration-300" style={{ width: `${(step/4)*100}%` }}></div>
+                        <div className="flex h-1 bg-slate-700">
+                            <div className="bg-yellow-500 transition-all duration-300" style={{ width: `${(step/5)*100}%` }}></div>
                         </div>
-
-                        {/* Content */}
                         <div className="p-6 flex-1 overflow-y-auto">
                             {step === 1 && (
-                                <form onSubmit={handleTitleSubmit}>
-                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 1: 設定比賽標題</h3>
-                                    <label className="block text-sm text-gray-400 mb-2">比賽名稱 (例: 冠軍賽 G1)</label>
-                                    <input 
-                                        className="w-full bg-gray-700 border border-gray-600 rounded p-3 text-white focus:border-blue-500 focus:outline-none mb-6"
-                                        autoFocus
-                                        value={data.title}
-                                        onChange={e => setData({...data, title: e.target.value})}
-                                        placeholder="輸入標題..."
-                                    />
-                                    <div className="flex justify-end">
-                                        <button type="submit" disabled={!data.title.trim()} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded font-bold">
-                                            下一步 <i className="fas fa-arrow-right ml-2"></i>
-                                        </button>
-                                    </div>
+                                <form onSubmit={(e) => { e.preventDefault(); if(data.title.trim()) setStep(2); }}>
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 1: 比賽標題</h3>
+                                    <input className="w-full bg-slate-700 border border-slate-600 rounded p-3 text-white mb-6" autoFocus value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="例: 溫布頓決賽" />
+                                    <button type="submit" disabled={!data.title.trim()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold">下一步</button>
                                 </form>
                             )}
-
                             {step === 2 && (
-                                <ParticipantSelector 
-                                    label="步驟 2: 選擇主隊 (Home)" 
-                                    appId={appId}
-                                    onSelect={(name) => {
-                                        setData({...data, teamA: name});
-                                        setStep(3);
-                                    }}
-                                />
-                            )}
-
-                            {step === 3 && (
                                 <div>
-                                    <div className="mb-2 text-sm text-gray-400">已選擇主隊: <span className="text-white font-bold">{data.teamA}</span></div>
-                                    <ParticipantSelector 
-                                        label="步驟 3: 選擇客隊 (Guest)" 
-                                        appId={appId}
-                                        exclude={[data.teamA]} // 避免選到同一隊
-                                        onSelect={(name) => {
-                                            setData({...data, teamB: name});
-                                            setStep(4);
-                                        }}
-                                    />
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 2: 選擇賽制</h3>
+                                    <div className="space-y-3">
+                                        {Object.entries(MATCH_MODES).map(([key, mode]) => (
+                                            <button key={key} onClick={() => { setData({...data, matchType: key}); setStep(3); }}
+                                                className={`w-full text-left p-4 rounded border ${data.matchType === key ? 'bg-blue-900/50 border-blue-500 ring-1 ring-blue-500' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}>
+                                                <div className="font-bold">{mode.name}</div>
+                                                <div className="text-xs text-slate-400 mt-1">
+                                                    {key === 'tiebreak' ? '一局定勝負 (搶10)' : `${mode.sets === 1 ? '一盤決勝' : `最多 ${mode.sets} 盤`} · 6局制`}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
-
-                            {step === 4 && (
+                            {step === 3 && <ParticipantSelector label="步驟 3: 主隊/選手 A" appId={appId} onSelect={(name) => { setData({...data, teamA: name}); setStep(4); }} />}
+                            {step === 4 && <ParticipantSelector label="步驟 4: 客隊/選手 B" appId={appId} exclude={[data.teamA]} onSelect={(name) => { setData({...data, teamB: name}); setStep(5); }} />}
+                            {step === 5 && (
                                 <div>
-                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 4: 安全設定 (選填)</h3>
-                                    <div className="bg-gray-900 p-4 rounded border border-gray-700 mb-6">
-                                        <div className="flex justify-between mb-2">
-                                            <span className="text-gray-400">標題</span>
-                                            <span className="font-bold">{data.title}</span>
-                                        </div>
-                                        <div className="flex justify-between mb-2">
-                                            <span className="text-red-400">主隊</span>
-                                            <span className="font-bold">{data.teamA}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-blue-400">客隊</span>
-                                            <span className="font-bold">{data.teamB}</span>
-                                        </div>
+                                    <h3 className="text-xl font-bold text-blue-400 mb-4">步驟 5: 確認與密碼</h3>
+                                    <div className="bg-slate-900 p-4 rounded border border-slate-700 mb-4 text-sm space-y-2">
+                                        <div className="flex justify-between"><span className="text-slate-400">賽制</span><span>{MATCH_MODES[data.matchType].name}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-400">選手 A</span><span className="font-bold text-white">{data.teamA}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-400">選手 B</span><span className="font-bold text-white">{data.teamB}</span></div>
                                     </div>
-
-                                    <label className="block text-sm text-gray-400 mb-2">裁判密碼 (若不設定請留空)</label>
-                                    <input 
-                                        type="text"
-                                        className="w-full bg-gray-700 border border-gray-600 rounded p-3 text-white focus:border-blue-500 focus:outline-none mb-6"
-                                        placeholder="選填..."
-                                        value={data.password}
-                                        onChange={e => setData({...data, password: e.target.value})}
-                                    />
-
-                                    <div className="flex justify-between">
-                                        <button onClick={() => setStep(3)} className="text-gray-400 hover:text-white px-4 py-2">
-                                            <i className="fas fa-arrow-left mr-2"></i>上一步
-                                        </button>
-                                        <button onClick={createMatch} className="bg-green-600 hover:bg-green-500 text-white px-8 py-2 rounded font-bold shadow-lg transform hover:scale-105 transition">
-                                            <i className="fas fa-check mr-2"></i>建立比賽
-                                        </button>
-                                    </div>
+                                    <input className="w-full bg-slate-700 border border-slate-600 rounded p-3 text-white mb-6" placeholder="裁判密碼 (選填)" value={data.password} onChange={e => setData({...data, password: e.target.value})} />
+                                    <button onClick={createMatch} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded font-bold shadow-lg">建立比賽</button>
                                 </div>
                             )}
                         </div>
@@ -324,539 +268,397 @@
         };
 
         // ==========================================
-        // 組件: 裁判模式
+        // 組件: 網球裁判模式 (核心邏輯)
         // ==========================================
-        const RefereeMode = ({ matchData, matchId, appId }) => {
+        const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             
-            const updateScore = async (team, delta) => {
-                const field = team === 'A' ? 'scoreA' : 'scoreB';
-                const newScore = Math.max(0, (matchData[field] || 0) + delta);
-                
-                const historyItem = {
-                    timestamp: new Date().toISOString(),
-                    action: `Score Update`,
-                    detail: `${team === 'A' ? matchData.teamA : matchData.teamB} ${delta > 0 ? '+' : ''}${delta}`,
-                    scoreSnapshot: `${team === 'A' ? newScore : matchData.scoreA} - ${team === 'B' ? newScore : matchData.scoreB}`
-                };
+            const handlePoint = async (winner) => {
+                if (matchData.winner) return;
 
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-                        [field]: newScore,
-                        history: firebase.firestore.FieldValue.arrayUnion(historyItem),
-                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (err) {
-                    console.error("Error updating score:", err);
-                }
-            };
+                const d = { ...matchData };
+                const mode = MATCH_MODES[d.matchType];
+                const setIdx = d.currentSetIndex;
+                const isTb = d.isTieBreak;
 
-            const resetMatch = async () => {
-                if(!confirm("確定要重置比分與歷史紀錄嗎？")) return;
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-                        scoreA: 0,
-                        scoreB: 0,
-                        history: [],
-                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (err) { console.error(err); }
-            };
+                // 1. 增加分數
+                if (winner === 'A') d.scoreA++;
+                else d.scoreB++;
 
-            const updateNames = async (e) => {
-                e.preventDefault();
-                const form = e.target;
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-                        title: form.title.value,
-                        teamA: form.teamA.value,
-                        teamB: form.teamB.value
-                    });
-                    alert("比賽資訊已更新");
-                } catch (err) { console.error(err); }
-            };
+                let gameWon = false;
+                let setWon = false;
+                let matchWon = false;
 
-            const deleteMatch = async () => {
-                if(!confirm("⚠️ 危險操作：您確定要「永久刪除」這場比賽嗎？\n此動作無法復原！")) return;
-                
-                if (matchData.password) {
-                    const input = prompt("為了安全起見，請再次輸入裁判密碼以確認刪除：");
-                    if (input !== matchData.password) {
-                        alert("密碼錯誤，取消刪除。");
-                        return;
+                // 2. 判斷是否贏得這局 (Game)
+                if (isTb) {
+                    // 搶七/搶十規則
+                    const target = d.matchType === 'tiebreak' ? mode.tiebreakTarget : 7;
+                    if ((winner === 'A' ? d.scoreA : d.scoreB) >= target && Math.abs(d.scoreA - d.scoreB) >= 2) {
+                        gameWon = true;
+                    }
+                } else {
+                    // 一般局規則: 4分 (40) 且領先2分
+                    if ((winner === 'A' ? d.scoreA : d.scoreB) >= 4 && Math.abs(d.scoreA - d.scoreB) >= 2) {
+                        gameWon = true;
                     }
                 }
 
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).delete();
-                } catch (err) { 
-                    alert("刪除失敗: " + err.message);
+                if (gameWon) {
+                    // 該局結束，重置分數
+                    d.scoreA = 0;
+                    d.scoreB = 0;
+                    
+                    if (d.matchType === 'tiebreak') {
+                        // 搶十模式，贏一局等於贏比賽
+                        matchWon = true;
+                        setWon = true; // 視為贏得這一盤
+                        d.setsA[setIdx] = winner === 'A' ? 1 : 0;
+                        d.setsB[setIdx] = winner === 'B' ? 1 : 0;
+                    } else {
+                        // 增加盤分 (Game score)
+                        if (winner === 'A') d.setsA[setIdx]++;
+                        else d.setsB[setIdx]++;
+
+                        const gamesA = d.setsA[setIdx];
+                        const gamesB = d.setsB[setIdx];
+
+                        // 3. 判斷是否贏得這盤 (Set)
+                        // 規則: 6局且領先2局 (6-4, 7-5)，或者 搶七贏了 (7-6)
+                        if (d.isTieBreak) {
+                            // 如果是搶七結束，那這一盤肯定結束了
+                            setWon = true;
+                            d.isTieBreak = false; // 下一盤回復正常
+                        } else {
+                            if ((winner === 'A' ? gamesA : gamesB) >= mode.targetGames && Math.abs(gamesA - gamesB) >= 2) {
+                                setWon = true;
+                            } else if (gamesA === 6 && gamesB === 6) {
+                                // 進入搶七
+                                d.isTieBreak = true;
+                            }
+                        }
+
+                        // 自動換發球 (每局結束換發球)
+                        // 注意：搶七內部換發球較複雜，這裡簡化為搶七結束後換，或每一局結束換
+                        // 為了簡單起見，網球規則是一局結束換發球
+                        d.server = d.server === 'A' ? 'B' : 'A';
+                    }
+
+                    if (setWon) {
+                        // 4. 判斷是否贏得比賽 (Match)
+                        // 計算贏的盤數
+                        let setsWonA = 0;
+                        let setsWonB = 0;
+                        d.setsA.forEach((s, i) => { if (s > d.setsB[i]) setsWonA++; else if (d.setsB[i] > s) setsWonB++; });
+                        
+                        // 檢查是否達到獲勝門檻 (超過總盤數的一半)
+                        const setsToWin = Math.ceil(mode.sets / 2);
+                        if (setsWonA >= setsToWin || setsWonB >= setsToWin) {
+                            matchWon = true;
+                            d.winner = setsWonA > setsWonB ? 'A' : 'B';
+                        } else {
+                            // 開始新的一盤
+                            d.currentSetIndex++;
+                            d.setsA.push(0);
+                            d.setsB.push(0);
+                            d.isTieBreak = false;
+                        }
+                    }
                 }
+
+                // Log History
+                const log = {
+                    timestamp: new Date().toISOString(),
+                    action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
+                    detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
+                    scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
+                };
+
+                // Update Firestore
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                    scoreA: d.scoreA,
+                    scoreB: d.scoreB,
+                    setsA: d.setsA,
+                    setsB: d.setsB,
+                    currentSetIndex: d.currentSetIndex,
+                    isTieBreak: d.isTieBreak,
+                    server: d.server,
+                    winner: d.winner || null,
+                    history: firebase.firestore.FieldValue.arrayUnion(log),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
             };
+
+            // 手動換發球
+            const toggleServer = async () => {
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                    server: matchData.server === 'A' ? 'B' : 'A'
+                });
+            };
+
+             const deleteMatch = async () => {
+                if(!confirm("⚠️ 危險操作：您確定要「永久刪除」這場比賽嗎？")) return;
+                if (matchData.password) {
+                    if (prompt("請輸入密碼：") !== matchData.password) return alert("密碼錯誤");
+                }
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).delete();
+            };
+
+            const ptA = formatTennisPoint(matchData.scoreA, matchData.scoreB, matchData.isTieBreak);
+            const ptB = formatTennisPoint(matchData.scoreB, matchData.scoreA, matchData.isTieBreak);
 
             return (
                 <div className="p-4 max-w-4xl mx-auto">
-                    <div className="bg-gray-800 rounded-xl p-6 mb-6 shadow-lg border border-gray-700">
-                        <div className="flex justify-between items-start mb-4">
+                    <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
+                        <div className="flex justify-between items-start mb-6">
                             <div>
-                                <h2 className="text-xl font-bold text-yellow-400"><i className="fas fa-whistle mr-2"></i>裁判控制台</h2>
-                                <h3 className="text-white text-lg font-bold mt-1">{matchData.title}</h3>
+                                <h2 className="text-xl font-bold text-yellow-400"><i className="fas fa-table-tennis mr-2"></i>網球裁判台</h2>
+                                <h3 className="text-white font-bold">{matchData.title}</h3>
+                                <div className="text-xs text-slate-400 mt-1">
+                                    {MATCH_MODES[matchData.matchType]?.name}
+                                    {matchData.isTieBreak && <span className="ml-2 text-red-400 font-bold animate-pulse">● TIE-BREAK</span>}
+                                    {matchData.winner && <span className="ml-2 text-green-400 font-bold">● 完賽</span>}
+                                </div>
                             </div>
-                            {matchData.password && (
-                                <span className="text-xs bg-red-900 text-red-300 px-2 py-1 rounded border border-red-700">
-                                    <i className="fas fa-lock mr-1"></i>已受密碼保護
+                            {matchData.password && <span className="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800"><i className="fas fa-lock mr-1"></i>Protected</span>}
+                        </div>
+
+                        {/* Main Scoreboard Area */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            {/* Player A */}
+                            <div className={`relative p-6 rounded-xl border-2 transition ${matchData.winner === 'A' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
+                                {matchData.server === 'A' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-4 left-4 text-yellow-400 animate-bounce"></i>}
+                                <h3 className="text-2xl font-bold text-white mb-2">{matchData.teamA}</h3>
+                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2">{ptA}</div>
+                                <div className="text-slate-400 text-sm mb-4">Sets: {matchData.setsA.filter((s,i) => s > matchData.setsB[i]).length}</div>
+                                <button onClick={() => handlePoint('A')} disabled={!!matchData.winner} className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-xl shadow-lg btn-press">
+                                    得分 +1
+                                </button>
+                            </div>
+
+                            {/* Player B */}
+                            <div className={`relative p-6 rounded-xl border-2 transition ${matchData.winner === 'B' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
+                                {matchData.server === 'B' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-4 left-4 text-yellow-400 animate-bounce"></i>}
+                                <h3 className="text-2xl font-bold text-white mb-2">{matchData.teamB}</h3>
+                                <div className="text-[5rem] leading-none font-mono font-bold text-blue-400 my-2">{ptB}</div>
+                                <div className="text-slate-400 text-sm mb-4">Sets: {matchData.setsB.filter((s,i) => s > matchData.setsA[i]).length}</div>
+                                <button onClick={() => handlePoint('B')} disabled={!!matchData.winner} className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-xl shadow-lg btn-press">
+                                    得分 +1
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Sets Detail */}
+                        <div className="bg-slate-900 p-4 rounded-lg mb-6 overflow-x-auto">
+                            <table className="w-full text-center border-collapse">
+                                <thead>
+                                    <tr className="text-slate-500 text-xs uppercase">
+                                        <th className="text-left p-2">Player</th>
+                                        {matchData.setsA.map((_, i) => <th key={i} className="p-2 w-12">Set {i+1}</th>)}
+                                    </tr>
+                                </thead>
+                                <tbody className="font-mono text-lg">
+                                    <tr className="border-b border-slate-800">
+                                        <td className="text-left p-2 font-bold text-white">{matchData.teamA}</td>
+                                        {matchData.setsA.map((s, i) => <td key={i} className={`p-2 ${i === matchData.currentSetIndex ? 'text-yellow-400' : 'text-slate-400'}`}>{s}</td>)}
+                                    </tr>
+                                    <tr>
+                                        <td className="text-left p-2 font-bold text-white">{matchData.teamB}</td>
+                                        {matchData.setsB.map((s, i) => <td key={i} className={`p-2 ${i === matchData.currentSetIndex ? 'text-yellow-400' : 'text-slate-400'}`}>{s}</td>)}
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-4 border-t border-slate-700">
+                            <button onClick={toggleServer} className="text-slate-400 hover:text-white text-sm"><i className="fas fa-exchange-alt mr-1"></i> 手動換發球</button>
+                            <button onClick={deleteMatch} className="text-red-400 hover:text-red-300 text-sm"><i className="fas fa-trash mr-1"></i> 刪除比賽</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 組件: 網球顯示模式 (Classic Scoreboard)
+        // ==========================================
+        const TennisDisplayMode = ({ matchData }) => {
+            const ptA = formatTennisPoint(matchData.scoreA, matchData.scoreB, matchData.isTieBreak);
+            const ptB = formatTennisPoint(matchData.scoreB, matchData.scoreA, matchData.isTieBreak);
+
+            return (
+                <div className="h-full flex flex-col items-center justify-center bg-black p-4">
+                     <div className="text-slate-500 text-3xl font-bold mb-8 uppercase tracking-[0.5em]">
+                        {matchData.title}
+                    </div>
+
+                    <div className="w-full max-w-7xl bg-slate-900 border-4 border-slate-700 rounded-lg overflow-hidden shadow-2xl">
+                        {/* Header Row */}
+                        <div className="tennis-grid bg-slate-800 text-slate-400 font-bold text-xl py-4 border-b border-slate-700">
+                            <div className="pl-8 flex items-center">PLAYER</div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className="text-center flex items-center justify-center">
+                                    {i < matchData.setsA.length ? `SET ${i+1}` : ''}
+                                </div>
+                            ))}
+                            <div className="text-center bg-slate-700 text-white flex items-center justify-center">POINTS</div>
+                        </div>
+
+                        {/* Player A Row */}
+                        <div className="tennis-grid py-2 border-b border-slate-800 items-center h-48">
+                            <div className="pl-8 text-5xl font-bold text-white flex items-center gap-4 truncate">
+                                {matchData.teamA}
+                                {matchData.server === 'A' && !matchData.winner && <div className="w-4 h-4 rounded-full bg-yellow-400 shadow-[0_0_10px_yellow]"></div>}
+                            </div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className={`text-center text-6xl font-mono font-bold ${i === matchData.currentSetIndex ? 'text-white' : 'text-slate-600'}`}>
+                                    {matchData.setsA[i] !== undefined ? matchData.setsA[i] : ''}
+                                </div>
+                            ))}
+                            <div className="bg-black/30 h-full flex items-center justify-center">
+                                <span className={`text-8xl font-mono font-bold ${matchData.isTieBreak ? 'text-red-500' : 'text-yellow-400'}`}>
+                                    {ptA}
                                 </span>
-                            )}
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-8 mb-8">
-                            {/* Team A */}
-                            <div className="text-center bg-gray-900 p-4 rounded-lg border border-red-900/50">
-                                <h3 className="text-red-400 font-bold text-xl mb-2 truncate">{matchData.teamA}</h3>
-                                <div className="digital-font text-6xl mb-4 text-white">{matchData.scoreA}</div>
-                                <div className="flex justify-center gap-2">
-                                    <button onClick={() => updateScore('A', 1)} className="btn-press bg-green-600 hover:bg-green-700 w-12 h-12 rounded-full text-xl font-bold shadow-lg">+</button>
-                                    <button onClick={() => updateScore('A', -1)} className="btn-press bg-red-600 hover:bg-red-700 w-12 h-12 rounded-full text-xl font-bold shadow-lg">-</button>
-                                </div>
-                            </div>
-
-                            {/* Team B */}
-                            <div className="text-center bg-gray-900 p-4 rounded-lg border border-blue-900/50">
-                                <h3 className="text-blue-400 font-bold text-xl mb-2 truncate">{matchData.teamB}</h3>
-                                <div className="digital-font text-6xl mb-4 text-white">{matchData.scoreB}</div>
-                                <div className="flex justify-center gap-2">
-                                    <button onClick={() => updateScore('B', 1)} className="btn-press bg-green-600 hover:bg-green-700 w-12 h-12 rounded-full text-xl font-bold shadow-lg">+</button>
-                                    <button onClick={() => updateScore('B', -1)} className="btn-press bg-red-600 hover:bg-red-700 w-12 h-12 rounded-full text-xl font-bold shadow-lg">-</button>
-                                </div>
                             </div>
                         </div>
 
-                        <div className="border-t border-gray-700 pt-6">
-                            <details className="group">
-                                <summary className="cursor-pointer text-gray-400 hover:text-white flex items-center font-medium">
-                                    <i className="fas fa-cog mr-2"></i> 比賽設定
-                                </summary>
-                                <div className="mt-4 p-4 bg-gray-900 rounded border border-gray-700">
-                                    <form onSubmit={updateNames} className="flex flex-col gap-4 mb-6">
-                                        <div>
-                                            <label className="block text-xs text-gray-500 mb-1">比賽標題</label>
-                                            <input name="title" defaultValue={matchData.title || "未命名比賽"} className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white font-bold" />
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs text-gray-500 mb-1">主隊名稱 (紅)</label>
-                                                <input name="teamA" defaultValue={matchData.teamA} className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white" />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs text-gray-500 mb-1">客隊名稱 (藍)</label>
-                                                <input name="teamB" defaultValue={matchData.teamB} className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white" />
-                                            </div>
-                                        </div>
-                                        <button type="submit" className="bg-gray-700 hover:bg-gray-600 text-white py-2 rounded">更新資訊</button>
-                                    </form>
-                                    
-                                    <div className="flex flex-col gap-3">
-                                        <button onClick={resetMatch} className="w-full border border-orange-600/50 text-orange-400 hover:bg-orange-600/10 py-2 rounded transition">
-                                            <i className="fas fa-undo mr-2"></i>重置比分
-                                        </button>
-                                        
-                                        <div className="mt-4 pt-4 border-t border-gray-700">
-                                            <h4 className="text-red-500 font-bold mb-2 text-xs uppercase">危險區域</h4>
-                                            <button onClick={deleteMatch} className="w-full bg-red-900/20 hover:bg-red-900/40 border border-red-800/50 text-red-400 py-3 rounded flex items-center justify-center transition">
-                                                <i className="fas fa-trash-alt mr-2"></i> 刪除此比賽
-                                            </button>
-                                        </div>
-                                    </div>
+                        {/* Player B Row */}
+                        <div className="tennis-grid py-2 items-center h-48">
+                            <div className="pl-8 text-5xl font-bold text-white flex items-center gap-4 truncate">
+                                {matchData.teamB}
+                                {matchData.server === 'B' && !matchData.winner && <div className="w-4 h-4 rounded-full bg-yellow-400 shadow-[0_0_10px_yellow]"></div>}
+                            </div>
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className={`text-center text-6xl font-mono font-bold ${i === matchData.currentSetIndex ? 'text-white' : 'text-slate-600'}`}>
+                                    {matchData.setsB[i] !== undefined ? matchData.setsB[i] : ''}
                                 </div>
-                            </details>
+                            ))}
+                            <div className="bg-black/30 h-full flex items-center justify-center">
+                                <span className={`text-8xl font-mono font-bold ${matchData.isTieBreak ? 'text-red-500' : 'text-yellow-400'}`}>
+                                    {ptB}
+                                </span>
+                            </div>
                         </div>
                     </div>
+                    
+                    {matchData.isTieBreak && <div className="mt-6 text-red-500 text-2xl font-bold animate-pulse">TIE-BREAK</div>}
+                    {matchData.winner && <div className="mt-6 text-yellow-400 text-4xl font-bold">WINNER: {matchData.winner === 'A' ? matchData.teamA : matchData.teamB}</div>}
                 </div>
             );
         };
 
         // ==========================================
-        // 組件: 顯示模式 (大螢幕)
-        // ==========================================
-        const DisplayMode = ({ matchData }) => {
-            return (
-                <div className="h-full flex flex-col items-center justify-center p-4 bg-black">
-                    <div className="text-gray-400 text-4xl font-bold mb-10 tracking-widest uppercase text-center">
-                        {matchData.title || "LIVE MATCH"}
-                    </div>
-                    <div className="w-full max-w-6xl flex justify-between items-center mb-8">
-                        <div className="text-center w-1/2 border-r border-gray-800">
-                            <h2 className="text-4xl md:text-6xl font-bold text-red-500 mb-4">{matchData.teamA}</h2>
-                            <div className="digital-font text-[10rem] md:text-[15rem] leading-none text-white drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">
-                                {matchData.scoreA}
-                            </div>
-                        </div>
-                        <div className="text-center w-1/2">
-                            <h2 className="text-4xl md:text-6xl font-bold text-blue-500 mb-4">{matchData.teamB}</h2>
-                            <div className="digital-font text-[10rem] md:text-[15rem] leading-none text-white drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-                                {matchData.scoreB}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="text-gray-500 text-xl font-mono text-center">
-                        LIVE MATCH
-                    </div>
-                </div>
-            );
-        };
-
-        // ==========================================
-        // 組件: 回顧模式
-        // ==========================================
-        const ReviewMode = ({ matchData }) => {
-            const history = matchData.history || [];
-            const reversedHistory = [...history].reverse();
-
-            return (
-                <div className="p-4 max-w-3xl mx-auto">
-                    <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
-                        <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
-                            <div>
-                                <h2 className="text-2xl font-bold text-green-400"><i className="fas fa-history mr-2"></i>比賽紀錄回顧</h2>
-                                <div className="text-white text-lg mt-1">{matchData.title}</div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-sm text-gray-400">最終比分</div>
-                                <div className="font-bold text-xl">{matchData.teamA} {matchData.scoreA} - {matchData.scoreB} {matchData.teamB}</div>
-                            </div>
-                        </div>
-
-                        {reversedHistory.length === 0 ? (
-                            <div className="text-center text-gray-500 py-10">尚無紀錄</div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="border-b border-gray-700 text-gray-400 text-sm">
-                                            <th className="py-2 px-3">時間</th>
-                                            <th className="py-2 px-3">事件</th>
-                                            <th className="py-2 px-3">詳情</th>
-                                            <th className="py-2 px-3 text-right">當時比分</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-sm">
-                                        {reversedHistory.map((item, idx) => {
-                                            const time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-                                            return (
-                                                <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition">
-                                                    <td className="py-3 px-3 font-mono text-gray-500">{time}</td>
-                                                    <td className="py-3 px-3 text-white">{item.action}</td>
-                                                    <td className="py-3 px-3 text-gray-300">{item.detail}</td>
-                                                    <td className="py-3 px-3 text-right font-mono text-yellow-500">{item.scoreSnapshot}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                        
-                        <div className="mt-6 pt-4 border-t border-gray-700">
-                            <h3 className="text-lg font-bold mb-2">統計摘要</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gray-900 p-3 rounded">
-                                    <div className="text-gray-500 text-xs">總得分次數</div>
-                                    <div className="text-xl font-bold">{history.length}</div>
-                                </div>
-                                <div className="bg-gray-900 p-3 rounded">
-                                    <div className="text-gray-500 text-xs">領先隊伍</div>
-                                    <div className="text-xl font-bold text-yellow-400">
-                                        {matchData.scoreA > matchData.scoreB ? matchData.teamA : (matchData.scoreB > matchData.scoreA ? matchData.teamB : '平手')}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        // ==========================================
-        // 主應用程式 Logic
+        // 主應用程式 (App)
         // ==========================================
         const App = () => {
             const [user, setUser] = useState(null);
-            const [view, setView] = useState('home'); // 'home', 'match'
+            const [view, setView] = useState('home'); 
             const [currentMatchId, setCurrentMatchId] = useState(null);
-            const [mode, setMode] = useState('referee'); // 'referee', 'display', 'review'
-            const [errorMsg, setErrorMsg] = useState('');
+            const [mode, setMode] = useState('referee'); 
             const [isCreatingMatch, setIsCreatingMatch] = useState(false);
             
             const [matches, setMatches] = useState([]);
             const [currentMatchData, setCurrentMatchData] = useState(null);
-            const [loading, setLoading] = useState(false);
 
-            useEffect(() => {
-                const unsub = auth.onAuthStateChanged(u => setUser(u));
-                return () => unsub();
-            }, []);
+            useEffect(() => { auth.onAuthStateChanged(u => setUser(u)); }, []);
 
-            // Fetch Matches List (Home View)
             useEffect(() => {
                 if (!user || view !== 'home') return;
-
-                setLoading(true);
-                setErrorMsg('');
-                
                 const q = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matches')
-                            .orderBy('createdAt', 'desc')
-                            .limit(20);
-                
-                const unsubscribe = q.onSnapshot(snapshot => {
-                    const list = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setMatches(list);
-                    setLoading(false);
-                }, err => {
-                    console.error("Fetch Error", err);
-                    setLoading(false);
-                    if (err.code === 'permission-denied') {
-                        setErrorMsg("讀取資料失敗：權限不足。請檢查 Firebase Console 的 Firestore Rules。");
-                    } else if (err.code === 'failed-precondition') {
-                        setErrorMsg("讀取失敗：可能需要建立索引 (Index)。請查看 Console 連結。");
-                    } else {
-                        setErrorMsg("連線錯誤：" + err.message);
-                    }
-                });
-
-                return () => unsubscribe();
+                            .orderBy('createdAt', 'desc').limit(20);
+                const unsub = q.onSnapshot(snap => setMatches(snap.docs.map(doc => ({id: doc.id, ...doc.data()}))));
+                return () => unsub();
             }, [user, view]);
 
-            // Listen to Specific Match
             useEffect(() => {
                 if (!user || view !== 'match' || !currentMatchId) return;
-
-                const docRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matches').doc(currentMatchId);
-                
-                const unsubscribe = docRef.onSnapshot(doc => {
-                    if (doc.exists) {
-                        setCurrentMatchData(doc.data());
-                    } else {
-                        alert("此比賽已被刪除或不存在");
-                        setView('home');
-                        setCurrentMatchId(null);
-                        setCurrentMatchData(null);
-                    }
-                }, err => {
-                    console.error("Match Sync Error", err);
-                });
-
-                return () => unsubscribe();
+                const unsub = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matches').doc(currentMatchId)
+                                .onSnapshot(doc => {
+                                    if(doc.exists) setCurrentMatchData(doc.data());
+                                    else { alert("比賽不存在"); setView('home'); }
+                                });
+                return () => unsub();
             }, [user, view, currentMatchId]);
 
-            const enterMatch = (matchId, targetMode = 'referee') => {
-                const match = matches.find(m => m.id === matchId);
-                
-                if (targetMode === 'referee' && match && match.password) {
-                    const input = prompt("此比賽受密碼保護，請輸入裁判密碼：");
-                    if (input !== match.password) {
-                        alert("密碼錯誤，無法進入裁判模式。");
-                        return;
-                    }
+            const enterMatch = (id, targetMode = 'referee') => {
+                const match = matches.find(m => m.id === id);
+                if (targetMode === 'referee' && match?.password) {
+                    if (prompt("請輸入密碼：") !== match.password) return alert("密碼錯誤");
                 }
-
-                setCurrentMatchId(matchId);
+                setCurrentMatchId(id);
                 setMode(targetMode);
                 setView('match');
             };
-            
-            const switchMode = (newMode) => {
-                if (newMode === 'referee' && currentMatchData && currentMatchData.password) {
-                     const input = prompt("請輸入裁判密碼以解鎖控制台：");
-                    if (input !== currentMatchData.password) {
-                        alert("密碼錯誤");
-                        return;
-                    }
-                }
-                setMode(newMode);
-            };
 
-            const goHome = () => {
-                setView('home');
-                setCurrentMatchId(null);
-                setCurrentMatchData(null);
-            };
+            if (!user) return <div className="h-screen flex items-center justify-center">Loading...</div>;
 
-            const copyShareLink = () => {
-                const url = window.location.href;
-                navigator.clipboard.writeText(url).then(() => {
-                    alert(`網址已複製！\n請將此網址傳送到其他裝置：\n${url}`);
-                }).catch(() => {
-                    alert(`請複製此網址傳送到其他裝置：\n${url}`);
-                });
-            };
-
-            // Renders
-            if (!user) {
-                return <div className="h-screen flex items-center justify-center text-gray-400">正在連接伺服器...</div>;
-            }
-
-            // --- View: Home ---
             if (view === 'home') {
                 return (
-                    <div className="min-h-screen bg-gray-900 p-6">
+                    <div className="min-h-screen bg-slate-900 p-6">
                         <header className="max-w-4xl mx-auto flex justify-between items-center mb-10">
-                            <h1 className="text-3xl font-bold text-white tracking-wider">
-                                <i className="fas fa-basketball-ball text-orange-500 mr-2"></i>
-                                ScoreBoard Pro
+                            <h1 className="text-3xl font-bold text-white tracking-wider flex items-center">
+                                <i className="fas fa-baseball-ball text-yellow-400 mr-3"></i>
+                                Tennis Pro Score
                             </h1>
-                            <button onClick={() => setIsCreatingMatch(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transition transform hover:scale-105">
-                                <i className="fas fa-plus mr-2"></i>新增比賽
+                            <button onClick={() => setIsCreatingMatch(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transform hover:scale-105 transition">
+                                <i className="fas fa-plus mr-2"></i>新增賽事
                             </button>
                         </header>
 
-                        {/* Create Match Modal */}
                         {isCreatingMatch && (
                             <CreateMatchModal 
                                 onClose={() => setIsCreatingMatch(false)}
-                                appId={APP_ID}
-                                user={user}
-                                onComplete={(newMatchId) => {
-                                    setIsCreatingMatch(false);
-                                    setCurrentMatchId(newMatchId);
-                                    setMode('referee');
-                                    setView('match');
-                                }}
+                                appId={APP_ID} user={user}
+                                onComplete={(id) => { setIsCreatingMatch(false); enterMatch(id); }}
                             />
                         )}
 
-                        <main className="max-w-4xl mx-auto">
-                            {errorMsg && (
-                                <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg mb-6 flex items-start">
-                                    <i className="fas fa-exclamation-triangle mt-1 mr-3"></i>
+                        <main className="max-w-4xl mx-auto grid gap-4">
+                            {matches.map(m => (
+                                <div key={m.id} className="bg-slate-800 p-4 rounded-lg flex items-center justify-between border border-slate-700 hover:border-blue-500 transition">
                                     <div>
-                                        <div className="font-bold">資料庫連線錯誤</div>
-                                        <div className="text-sm">{errorMsg}</div>
+                                        <div className="text-blue-400 font-bold">{m.title}</div>
+                                        <div className="text-xl text-white font-bold my-1">
+                                            {m.teamA} <span className="text-slate-500 text-sm mx-1">vs</span> {m.teamB}
+                                        </div>
+                                        <div className="text-xs text-slate-500">
+                                            {MATCH_MODES[m.matchType]?.name} • {m.winner ? '已完賽' : '進行中'}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => enterMatch(m.id, 'display')} className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-blue-300"><i className="fas fa-tv mr-1"></i>顯示</button>
+                                        <button onClick={() => enterMatch(m.id, 'referee')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold text-white">裁判台</button>
                                     </div>
                                 </div>
-                            )}
-
-                            <h2 className="text-gray-400 text-sm uppercase tracking-widest mb-4">最近的比賽</h2>
-                            {loading ? (
-                                <div className="text-center py-10">載入中...</div>
-                            ) : matches.length === 0 ? (
-                                <div className="text-center py-20 bg-gray-800 rounded-xl border border-dashed border-gray-700">
-                                    <p className="text-gray-500 text-lg mb-4">
-                                        {errorMsg ? "無法顯示資料" : "目前沒有比賽紀錄"}
-                                    </p>
-                                    {!errorMsg && (
-                                        <button onClick={() => setIsCreatingMatch(true)} className="text-blue-400 hover:text-blue-300 underline">立即建立一場</button>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="grid gap-4">
-                                    {matches.map(m => (
-                                        <div key={m.id} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-750 transition border border-gray-700">
-                                            <div className="flex-1">
-                                                <div className="text-blue-400 font-bold mb-1 text-lg">{m.title || "未命名比賽"}</div>
-                                                <div className="flex items-center gap-4 mb-2">
-                                                    <span className="font-bold text-lg text-white">{m.teamA}</span>
-                                                    <span className="text-gray-500 font-mono text-xl">{m.scoreA} : {m.scoreB}</span>
-                                                    <span className="font-bold text-lg text-white">{m.teamB}</span>
-                                                </div>
-                                                <div className="text-xs text-gray-500 flex items-center gap-3">
-                                                    <span>{new Date(m.createdAt?.seconds * 1000).toLocaleDateString()}</span>
-                                                    <span>ID: {m.id.substring(0, 8)}...</span>
-                                                    {m.password && (
-                                                        <span className="text-red-400 flex items-center" title="需要密碼才能進入裁判模式">
-                                                            <i className="fas fa-lock text-xs mr-1"></i> 保護中
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => enterMatch(m.id, 'display')} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm text-blue-300">
-                                                    <i className="fas fa-tv mr-1"></i>顯示
-                                                </button>
-                                                <button onClick={() => enterMatch(m.id, 'review')} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm text-green-300">
-                                                    <i className="fas fa-chart-bar mr-1"></i>回顧
-                                                </button>
-                                                <button onClick={() => enterMatch(m.id, 'referee')} className="px-4 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-bold">
-                                                    {m.password && <i className="fas fa-lock mr-1 text-xs"></i>}
-                                                    進入控制
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            ))}
                         </main>
                     </div>
                 );
             }
 
-            // --- View: Match (Container) ---
             if (view === 'match' && currentMatchData) {
-                // 如果是顯示模式，隱藏頂部導航以求全螢幕效果，但提供一個小的返回按鈕
                 if (mode === 'display') {
                     return (
-                        <div className="h-screen w-screen relative bg-black overflow-hidden">
-                            <button onClick={goHome} className="absolute top-4 left-4 text-gray-700 hover:text-gray-500 z-50 opacity-20 hover:opacity-100 transition">
-                                <i className="fas fa-arrow-left fa-2x"></i>
-                            </button>
-                             <div className="absolute top-4 right-4 z-50 opacity-0 hover:opacity-100 transition">
-                                <div className="bg-black/80 text-white text-xs p-2 rounded">
-                                    按下 F11 進入全螢幕
-                                </div>
-                            </div>
-                            <DisplayMode matchData={currentMatchData} />
+                        <div className="h-screen w-screen relative bg-black">
+                            <button onClick={() => setView('home')} className="absolute top-4 left-4 text-slate-600 hover:text-white z-50"><i className="fas fa-arrow-left fa-2x"></i></button>
+                            <TennisDisplayMode matchData={currentMatchData} />
                         </div>
                     );
                 }
-
-                // 普通模式 (裁判/回顧) 的佈局
                 return (
-                    <div className="min-h-screen bg-gray-900 flex flex-col">
-                        {/* Navigation Bar */}
-                        <nav className="bg-gray-800 border-b border-gray-700 p-4 sticky top-0 z-10 shadow-md">
-                            <div className="max-w-4xl mx-auto flex flex-wrap justify-between items-center gap-4">
-                                <button onClick={goHome} className="text-gray-400 hover:text-white flex items-center">
-                                    <i className="fas fa-chevron-left mr-1"></i> 回列表
-                                </button>
-                                
-                                <div className="flex bg-gray-900 rounded-lg p-1">
-                                    <button 
-                                    onClick={() => switchMode('display')}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'display' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                    顯示
-                                    </button>
-                                    <button 
-                                    onClick={() => switchMode('review')}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${mode === 'review' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                    回顧
-                                    </button>
-                                    <button 
-                                        onClick={() => switchMode('referee')}
-                                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center ${mode === 'referee' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        {currentMatchData.password && mode !== 'referee' && <i className="fas fa-lock text-xs mr-1"></i>}
-                                        裁判
-                                    </button>
-                                </div>
-
-                                <button onClick={copyShareLink} className="text-gray-400 hover:text-blue-400 text-sm">
-                                    <i className="fas fa-share-alt mr-1"></i> 分享
-                                </button>
+                    <div className="min-h-screen bg-slate-900 flex flex-col">
+                        <nav className="bg-slate-800 p-4 border-b border-slate-700 flex justify-between">
+                            <button onClick={() => setView('home')} className="text-slate-400 hover:text-white"><i className="fas fa-chevron-left mr-1"></i> 列表</button>
+                            <div className="space-x-2">
+                                <button onClick={() => setMode('referee')} className={`px-4 py-1 rounded ${mode === 'referee' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>裁判</button>
+                                <button onClick={() => setMode('display')} className="px-4 py-1 rounded text-slate-400 hover:text-white">大螢幕</button>
                             </div>
+                            <button className="text-slate-400"><i className="fas fa-share-alt"></i></button>
                         </nav>
-
-                        {/* Content Area */}
                         <div className="flex-1 overflow-y-auto">
-                            {mode === 'referee' && <RefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}
-                            {mode === 'review' && <ReviewMode matchData={currentMatchData} />}
+                            <TennisRefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />
                         </div>
                     </div>
                 );
             }
-
             return null;
         };
 
