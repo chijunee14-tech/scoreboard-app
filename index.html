@@ -216,8 +216,7 @@
                         isTieBreak: data.matchType === 'tiebreak', 
                         server: 'A', 
                         winner: null,
-                        history: [],
-                        undoStack: [], // 新增 undo stack
+                        undoStack: [], // 新增 undo stack (限制大小)
                         password: data.password || null,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         createdBy: user.uid,
@@ -302,11 +301,12 @@
                     currentSetIndex: d.currentSetIndex,
                     isTieBreak: d.isTieBreak,
                     server: d.server,
-                    winner: d.winner,
-                    history: [...(d.history || [])] // Copy history
+                    winner: d.winner
                 };
 
-                const undoStack = [...(d.undoStack || []), snapshot];
+                // 限制 undoStack 大小為最近 20 步
+                const currentStack = d.undoStack || [];
+                const undoStack = [...currentStack.slice(-19), snapshot];
 
                 const mode = MATCH_MODES[d.matchType];
                 const setIdx = d.currentSetIndex;
@@ -379,17 +379,20 @@
                     }
                 }
 
-                // 4. Log History
+                // 4. Log History to subcollection (非阻塞式寫入)
                 const log = {
-                    timestamp: new Date().toISOString(),
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
                     detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
                     scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
                 };
-                const newHistory = [...(d.history || []), log];
 
-                // 5. Update Firestore
-                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                // 5. Update Firestore (批次操作)
+                const batch = db.batch();
+                
+                // 更新主文件 (不含 history)
+                const matchRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId);
+                batch.update(matchRef, {
                     scoreA: d.scoreA,
                     scoreB: d.scoreB,
                     setsA: d.setsA,
@@ -398,10 +401,15 @@
                     isTieBreak: d.isTieBreak,
                     server: d.server,
                     winner: d.winner || null,
-                    history: newHistory,
-                    undoStack: undoStack, // Save stack for undo
+                    undoStack: undoStack,
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 });
+                
+                // 新增歷史記錄到子集合
+                const historyRef = matchRef.collection('history').doc();
+                batch.set(historyRef, log);
+                
+                await batch.commit();
             };
 
             // Undo Function
@@ -414,8 +422,16 @@
                 const previousState = matchData.undoStack[matchData.undoStack.length - 1];
                 const newStack = matchData.undoStack.slice(0, -1); // Pop
 
+                // 只更新比賽狀態，不處理 history
                 await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-                    ...previousState,
+                    scoreA: previousState.scoreA,
+                    scoreB: previousState.scoreB,
+                    setsA: previousState.setsA,
+                    setsB: previousState.setsB,
+                    currentSetIndex: previousState.currentSetIndex,
+                    isTieBreak: previousState.isTieBreak,
+                    server: previousState.server,
+                    winner: previousState.winner,
                     undoStack: newStack
                 });
             };
@@ -586,9 +602,34 @@
         // ==========================================
         // 組件: 回顧模式 (Review/History)
         // ==========================================
-        const TennisReviewMode = ({ matchData }) => {
-            const history = matchData.history || [];
-            const reversedHistory = [...history].reverse();
+        const TennisReviewMode = ({ matchData, matchId, appId }) => {
+            const [history, setHistory] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                // 從子集合即時監聽 history
+                const unsubscribe = db.collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('matches')
+                    .doc(matchId)
+                    .collection('history')
+                    .orderBy('timestamp', 'desc')
+                    .limit(100) // 只載入最近 100 筆
+                    .onSnapshot(snapshot => {
+                        const historyData = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setHistory(historyData);
+                        setLoading(false);
+                    });
+                
+                return () => unsubscribe();
+            }, [matchId, appId]);
+
+            const reversedHistory = history;
 
             return (
                 <div className="p-4 max-w-4xl mx-auto">
@@ -604,7 +645,12 @@
                             </div>
                         </div>
 
-                        {reversedHistory.length === 0 ? (
+                        {loading ? (
+                            <div className="text-center py-8 text-slate-400">
+                                <i className="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                <div>載入中...</div>
+                            </div>
+                        ) : reversedHistory.length === 0 ? (
                             <div className="text-center text-slate-500 py-10">尚無紀錄</div>
                         ) : (
                             <div className="overflow-x-auto">
@@ -619,7 +665,8 @@
                                     </thead>
                                     <tbody className="text-sm">
                                         {reversedHistory.map((item, idx) => {
-                                            const time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                            const timestamp = item.timestamp?.toDate ? item.timestamp.toDate() : new Date(item.timestamp);
+                                            const time = timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
                                             return (
                                                 <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
                                                     <td className="py-3 px-3 font-mono text-slate-500">{time}</td>
