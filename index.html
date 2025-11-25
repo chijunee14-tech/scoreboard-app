@@ -399,6 +399,8 @@
                     scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
                 };
 
+                console.log('Creating history log:', log);
+
                 // 5. Update Firestore (批次操作)
                 const batch = db.batch();
                 
@@ -421,7 +423,9 @@
                 const historyRef = matchRef.collection('history').doc();
                 batch.set(historyRef, log);
                 
+                console.log('Committing batch with history to:', historyRef.path);
                 await batch.commit();
+                console.log('Batch committed successfully');
             };
 
             // Undo Function
@@ -629,14 +633,25 @@
                     .collection('history')
                     .orderBy('timestamp', 'desc')
                     .limit(100) // 只載入最近 100 筆
-                    .onSnapshot(snapshot => {
-                        const historyData = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        }));
-                        setHistory(historyData);
-                        setLoading(false);
-                    });
+                    .onSnapshot(
+                        snapshot => {
+                            console.log('History snapshot received:', snapshot.size, 'documents');
+                            const historyData = snapshot.docs.map(doc => {
+                                const data = doc.data();
+                                console.log('History item:', doc.id, data);
+                                return {
+                                    id: doc.id,
+                                    ...data
+                                };
+                            });
+                            setHistory(historyData);
+                            setLoading(false);
+                        },
+                        error => {
+                            console.error('Error loading history:', error);
+                            setLoading(false);
+                        }
+                    );
                 
                 return () => unsubscribe();
             }, [matchId, appId]);
@@ -677,8 +692,16 @@
                                     </thead>
                                     <tbody className="text-sm">
                                         {reversedHistory.map((item, idx) => {
-                                            const timestamp = item.timestamp?.toDate ? item.timestamp.toDate() : new Date(item.timestamp);
-                                            const time = timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                            let time = '--:--:--';
+                                            try {
+                                                if (item.timestamp?.toDate) {
+                                                    time = item.timestamp.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                                } else if (item.timestamp) {
+                                                    time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                                }
+                                            } catch (e) {
+                                                console.error('Timestamp parsing error:', e);
+                                            }
                                             return (
                                                 <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
                                                     <td className="py-3 px-3 font-mono text-slate-500">{time}</td>
