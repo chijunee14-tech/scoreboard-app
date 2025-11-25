@@ -400,12 +400,15 @@
                 };
 
                 console.log('Creating history log:', log);
+                console.log('Match ID:', matchId);
+                console.log('App ID:', appId);
 
                 // 5. Update Firestore (批次操作)
                 const batch = db.batch();
                 
                 // 更新主文件 (不含 history)
                 const matchRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId);
+                console.log('Match ref path:', matchRef.path);
                 batch.update(matchRef, {
                     scoreA: d.scoreA,
                     scoreB: d.scoreB,
@@ -625,17 +628,25 @@
             useEffect(() => {
                 // 從子集合即時監聽 history
                 // 注意：移除 orderBy 以避免需要索引，改為在客戶端排序
-                const unsubscribe = db.collection('artifacts')
+                console.log('Setting up history listener for match:', matchId);
+                const historyCollectionRef = db.collection('artifacts')
                     .doc(appId)
                     .collection('public')
                     .doc('data')
                     .collection('matches')
                     .doc(matchId)
-                    .collection('history')
+                    .collection('history');
+                
+                console.log('History collection path:', historyCollectionRef.path);
+                
+                const unsubscribe = historyCollectionRef
                     .limit(100) // 只載入最近 100 筆
                     .onSnapshot(
                         snapshot => {
                             console.log('History snapshot received:', snapshot.size, 'documents');
+                            console.log('Snapshot empty?', snapshot.empty);
+                            console.log('Snapshot metadata:', snapshot.metadata);
+                            
                             const historyData = snapshot.docs.map(doc => {
                                 const data = doc.data();
                                 console.log('History item:', doc.id, data);
@@ -655,6 +666,8 @@
                         },
                         error => {
                             console.error('Error loading history:', error);
+                            console.error('Error code:', error.code);
+                            console.error('Error message:', error.message);
                             setLoading(false);
                         }
                     );
