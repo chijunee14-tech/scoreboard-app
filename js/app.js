@@ -98,9 +98,16 @@ const App = () => {
                                 <div className="text-xs flex items-center gap-2">
                                     <span className="text-slate-500">{MATCH_MODES[m.matchType]?.name}</span>
                                     <span className="text-slate-500">•</span>
-                                    <span className={m.winner ? 'text-slate-500' : 'status-live font-semibold'}>
-                                        {m.winner ? '已完賽' : '進行中'}
-                                    </span>
+                                    {m.winner ? (
+                                        <span className="text-slate-500">已完賽</span>
+                                    ) : m.timing?.isPaused ? (
+                                        <span className="text-yellow-400 font-semibold animate-pulse flex items-center">
+                                            <i className="fas fa-pause-circle mr-1"></i>
+                                            暫停
+                                        </span>
+                                    ) : (
+                                        <span className="status-live font-semibold">進行中</span>
+                                    )}
                                     {!m.winner && <span className="text-slate-500">•</span>}
                                     {!m.winner && <MatchTimerDisplay matchData={m} />}
                                 </div>

@@ -41,24 +41,9 @@ const MatchTimerDisplay = ({ matchData }) => {
     const isPaused = matchData.timing?.isPaused || false;
 
     return (
-        <>
-            {isPaused ? (
-                <>
-                    <span className="text-yellow-400 font-bold text-xs animate-pulse flex items-center">
-                        <i className="fas fa-pause-circle mr-1"></i>
-                        暫停
-                    </span>
-                    <span className="text-yellow-400 font-mono text-sm animate-pulse flex items-center ml-2">
-                        <i className="fas fa-clock mr-1"></i>
-                        {formatTime(elapsedTime)}
-                    </span>
-                </>
-            ) : (
-                <span className="text-green-400 font-mono text-sm flex items-center">
-                    <i className="fas fa-clock mr-1"></i>
-                    {formatTime(elapsedTime)}
-                </span>
-            )}
-        </>
+        <span className={`font-mono text-sm flex items-center ${isPaused ? 'text-yellow-400 animate-pulse' : 'text-green-400'}`}>
+            <i className="fas fa-clock mr-1"></i>
+            {formatTime(elapsedTime)}
+        </span>
     );
 };
