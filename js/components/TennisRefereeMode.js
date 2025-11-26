@@ -1,6 +1,32 @@
 // ==========================================
 // Component: Tennis Referee Mode
 // ==========================================
+
+/**
+ * 檢查當前是否為破發點
+ * @param {number} scoreA - A 的分數
+ * @param {number} scoreB - B 的分數
+ * @param {string} server - 當前發球方 ('A' or 'B')
+ * @param {boolean} isTieBreak - 是否為搶七
+ * @returns {Object} { isBreakPoint: boolean, receiverTeam: string }
+ */
+const checkIfBreakPoint = (scoreA, scoreB, server, isTieBreak) => {
+    // 搶七局不算破發點（沒有明確的發球局概念）
+    if (isTieBreak) return { isBreakPoint: false, receiverTeam: null };
+    
+    const receiver = server === 'A' ? 'B' : 'A';
+    const serverScore = server === 'A' ? scoreA : scoreB;
+    const receiverScore = server === 'A' ? scoreB : scoreA;
+    
+    // 破發點條件：接發球方再得一分就能贏得這局
+    // 1. 接發球方 >= 3 分且領先 1 分以上（包括 40-30, 40-15, 40-0, AD）
+    if (receiverScore >= 3 && receiverScore - serverScore >= 1) {
+        return { isBreakPoint: true, receiverTeam: receiver };
+    }
+    
+    return { isBreakPoint: false, receiverTeam: null };
+};
+
 const TennisRefereeMode = ({ matchData, matchId, appId }) => {
     const { useState, useEffect } = React;
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -86,7 +112,10 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
 
         const d = { ...matchData };
         
-        // 1. 建立當前狀態的快照 (Snapshot) 用於 Undo
+        // 1. 檢查當前是否為破發點 (在得分前檢查)
+        const isBreakPoint = checkIfBreakPoint(d.scoreA, d.scoreB, d.server, d.isTieBreak);
+        
+        // 1.1 建立當前狀態的快照 (Snapshot) 用於 Undo
         const snapshot = {
             scoreA: d.scoreA,
             scoreB: d.scoreB,
@@ -136,6 +165,28 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
         }
 
         if (gameWon) {
+            // 在重置分數前，檢查是否發生破發
+            const wasBreak = (d.server !== winner);
+            
+            // 更新破發點統計
+            if (isBreakPoint.isBreakPoint) {
+                // 這是破發點機會，記錄 total
+                const receiverTeam = isBreakPoint.receiverTeam === 'A' ? 'teamA' : 'teamB';
+                const currentTotal = d.stats?.[receiverTeam]?.breakPointsTotal || 0;
+                const currentWon = d.stats?.[receiverTeam]?.breakPointsWon || 0;
+                
+                // 確保 stats 結構存在
+                if (!d.stats) d.stats = { teamA: {}, teamB: {} };
+                if (!d.stats[receiverTeam]) d.stats[receiverTeam] = {};
+                
+                d.stats[receiverTeam].breakPointsTotal = currentTotal + 1;
+                
+                // 如果接發球方贏了這局，則破發成功
+                if (wasBreak && isBreakPoint.receiverTeam === winner) {
+                    d.stats[receiverTeam].breakPointsWon = currentWon + 1;
+                }
+            }
+            
             d.scoreA = 0;
             d.scoreB = 0;
             
@@ -212,6 +263,7 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             isTieBreak: d.isTieBreak,
             server: d.server,
             winner: d.winner || null,
+            stats: d.stats,
             undoStack: undoStack,
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         });
