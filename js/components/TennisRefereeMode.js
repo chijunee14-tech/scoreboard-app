@@ -78,13 +78,6 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
     const handleStatAndPoint = async (statType, team) => {
         if (matchData.winner) return;
         
-        // 先記錄統計
-        const fieldPath = `stats.${team}.${statType}`;
-        const currentValue = matchData.stats?.[team]?.[statType] || 0;
-        await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
-            [fieldPath]: currentValue + 1
-        });
-        
         // 判斷誰得分
         let winner;
         if (statType === 'aces') {
@@ -101,16 +94,25 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             winner = team === 'teamA' ? 'B' : 'A';
         }
         
-        // 自動計分
+        // 自動計分（同時更新統計）
         if (winner) {
-            await handlePoint(winner);
+            await handlePoint(winner, statType, team);
         }
     };
     
-    const handlePoint = async (winner) => {
+    const handlePoint = async (winner, statType = null, statTeam = null) => {
         if (matchData.winner) return;
 
         const d = { ...matchData };
+        
+        // 如果有統計類型，先更新統計數據到本地副本
+        if (statType && statTeam) {
+            if (!d.stats) d.stats = { teamA: {}, teamB: {} };
+            if (!d.stats[statTeam]) d.stats[statTeam] = {};
+            
+            const currentValue = d.stats[statTeam][statType] || 0;
+            d.stats[statTeam][statType] = currentValue + 1;
+        }
         
         // 1. 檢查當前是否為破發點 (在得分前檢查)
         const isBreakPoint = checkIfBreakPoint(d.scoreA, d.scoreB, d.server, d.isTieBreak);
@@ -127,7 +129,7 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             d.stats[receiverTeam].breakPointsTotal = currentTotal + 1;
         }
         
-        // 1.2 建立當前狀態的快照 (Snapshot) 用於 Undo
+        // 1.2 建立當前狀態的快照 (Snapshot) 用於 Undo（包含統計數據）
         const snapshot = {
             scoreA: d.scoreA,
             scoreB: d.scoreB,
@@ -136,7 +138,12 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             currentSetIndex: d.currentSetIndex,
             isTieBreak: d.isTieBreak,
             server: d.server,
-            winner: d.winner
+            winner: d.winner,
+            // 深拷貝統計數據
+            stats: {
+                teamA: { ...(matchData.stats?.teamA || {}) },
+                teamB: { ...(matchData.stats?.teamB || {}) }
+            }
         };
 
         // 限制 undoStack 大小為最近 20 步
@@ -237,10 +244,22 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
         }
 
         // 4. Log History to subcollection (非阻塞式寫入)
+        // 建立詳細描述
+        let detailText = `${winner === 'A' ? d.teamA : d.teamB} wins point`;
+        if (statType) {
+            const statLabels = {
+                'aces': 'Ace',
+                'doubleFaults': '雙發失誤',
+                'winners': '致勝球',
+                'unforcedErrors': '非受迫性失誤'
+            };
+            detailText = `${winner === 'A' ? d.teamA : d.teamB} wins point (${statLabels[statType]})`;
+        }
+        
         const log = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
-            detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
+            detail: detailText,
             scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`,
             // 詳細分數資訊
             detailedScore: {
@@ -254,7 +273,8 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                 isTieBreak: d.isTieBreak,
                 server: d.server,
                 wasBreakPoint: isBreakPoint.isBreakPoint,
-                wasBreak: gameWon && (d.server !== winner)
+                wasBreak: gameWon && (d.server !== winner),
+                statType: statType || null
             }
         };
 
@@ -327,6 +347,7 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                 .collection('matches')
                 .doc(matchId);
             
+            // 還原包含統計數據的完整狀態
             batch.update(matchRef, {
                 scoreA: previousState.scoreA,
                 scoreB: previousState.scoreB,
@@ -336,6 +357,7 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                 isTieBreak: previousState.isTieBreak,
                 server: previousState.server,
                 winner: previousState.winner,
+                stats: previousState.stats || { teamA: {}, teamB: {} },  // 還原統計數據
                 undoStack: newStack
             });
             
