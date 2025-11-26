@@ -139,6 +139,9 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
 
     return (
         <div className="p-4 max-w-4xl mx-auto">
+            {/* 統計面板 */}
+            <TennisStatsPanel matchData={matchData} />
+            
             <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
                     <div>

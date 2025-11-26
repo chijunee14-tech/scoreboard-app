@@ -26,7 +26,33 @@ const CreateMatchModal = ({ onClose, onComplete, appId, user }) => {
                 password: data.password || null,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 createdBy: user.uid,
-                sport: 'tennis'
+                sport: 'tennis',
+                // 統計數據
+                stats: {
+                    teamA: {
+                        aces: 0,
+                        doubleFaults: 0,
+                        winners: 0,
+                        unforcedErrors: 0,
+                        breakPointsWon: 0,
+                        breakPointsTotal: 0
+                    },
+                    teamB: {
+                        aces: 0,
+                        doubleFaults: 0,
+                        winners: 0,
+                        unforcedErrors: 0,
+                        breakPointsWon: 0,
+                        breakPointsTotal: 0
+                    }
+                },
+                // 計時器
+                timing: {
+                    startTime: firebase.firestore.FieldValue.serverTimestamp(),
+                    pausedTime: 0,
+                    isPaused: false,
+                    lastPauseStart: null
+                }
             };
 
             const docRef = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').add(initialMatchData);

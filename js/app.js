@@ -8,11 +8,26 @@ const App = () => {
     const [currentMatchId, setCurrentMatchId] = useState(null);
     const [mode, setMode] = useState('referee'); 
     const [isCreatingMatch, setIsCreatingMatch] = useState(false);
+    const [showQRCode, setShowQRCode] = useState(false);
     
     const [matches, setMatches] = useState([]);
     const [currentMatchData, setCurrentMatchData] = useState(null);
 
     useEffect(() => { auth.onAuthStateChanged(u => setUser(u)); }, []);
+
+    // 檢查 URL 參數，自動進入比賽
+    useEffect(() => {
+        if (!user) return;
+        const urlParams = new URLSearchParams(window.location.search);
+        const matchId = urlParams.get('match');
+        const urlMode = urlParams.get('mode');
+        
+        if (matchId) {
+            setCurrentMatchId(matchId);
+            setMode(urlMode || 'display');
+            setView('match');
+        }
+    }, [user]);
 
     useEffect(() => {
         if (!user || view !== 'home') return;
@@ -118,8 +133,15 @@ const App = () => {
                         <button onClick={() => switchMode('display')} className="px-4 py-1 rounded text-slate-400 hover:text-white">大螢幕</button>
                         <button onClick={() => switchMode('review')} className={`px-4 py-1 rounded ${mode === 'review' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>紀錄</button>
                     </div>
-                    <button className="text-slate-400"><i className="fas fa-share-alt"></i></button>
+                    <button onClick={() => setShowQRCode(true)} className="text-slate-400 hover:text-white flex items-center gap-2">
+                        <i className="fas fa-share-alt"></i>
+                        <span className="hidden sm:inline">分享</span>
+                    </button>
                 </nav>
+                
+                {/* QR Code 分享模態框 */}
+                {showQRCode && <QRCodeShareModal matchId={currentMatchId} onClose={() => setShowQRCode(false)} />}
+                
                 <div className="flex-1 overflow-y-auto">
                     {mode === 'referee' && <TennisRefereeMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}
                     {mode === 'review' && <TennisReviewMode matchData={currentMatchData} matchId={currentMatchId} appId={APP_ID} />}

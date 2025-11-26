@@ -2,6 +2,61 @@
 // Component: Tennis Referee Mode
 // ==========================================
 const TennisRefereeMode = ({ matchData, matchId, appId }) => {
+    const { useState, useEffect } = React;
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const [showStatsModal, setShowStatsModal] = useState(false);
+    const [pendingStatType, setPendingStatType] = useState(null);
+
+    // 計時器邏輯
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (matchData.timing && !matchData.timing.isPaused && !matchData.winner) {
+                const now = Date.now();
+                const startTime = matchData.timing.startTime?.toMillis?.() || matchData.timing.startTime || now;
+                const pausedTime = matchData.timing.pausedTime || 0;
+                setElapsedTime(Math.floor((now - startTime - pausedTime) / 1000));
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [matchData.timing, matchData.winner]);
+
+    const formatTime = (seconds) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const togglePause = async () => {
+        const isPaused = matchData.timing?.isPaused || false;
+        const now = Date.now();
+        
+        if (isPaused) {
+            // 恢復計時
+            const pauseStart = matchData.timing.lastPauseStart || now;
+            const pausedDuration = now - pauseStart;
+            await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                'timing.isPaused': false,
+                'timing.pausedTime': (matchData.timing.pausedTime || 0) + pausedDuration,
+                'timing.lastPauseStart': null
+            });
+        } else {
+            // 暫停計時
+            await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+                'timing.isPaused': true,
+                'timing.lastPauseStart': now
+            });
+        }
+    };
+
+    const recordStat = async (team, statType) => {
+        const fieldPath = `stats.${team}.${statType}`;
+        const currentValue = matchData.stats?.[team]?.[statType] || 0;
+        await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
+            [fieldPath]: currentValue + 1
+        });
+        setPendingStatType(null);
+    };
     
     const handlePoint = async (winner) => {
         if (matchData.winner) return;
@@ -228,6 +283,26 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
 
     return (
         <div className="p-2 sm:p-4 max-w-4xl mx-auto">
+            {/* 統計快捷記錄模態框 */}
+            {pendingStatType && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700 p-6">
+                        <h3 className="text-xl font-bold text-yellow-400 mb-4 text-center">記錄 {pendingStatType === 'aces' ? 'Ace' : pendingStatType === 'doubleFaults' ? '雙發失誤' : pendingStatType === 'winners' ? '致勝球' : '非受迫性失誤'}</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <button onClick={() => recordStat('teamA', pendingStatType)} className="p-6 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white text-lg">
+                                {matchData.teamA}
+                            </button>
+                            <button onClick={() => recordStat('teamB', pendingStatType)} className="p-6 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-white text-lg">
+                                {matchData.teamB}
+                            </button>
+                        </div>
+                        <button onClick={() => setPendingStatType(null)} className="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded">
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-slate-800 rounded-xl p-3 sm:p-6 shadow-lg border border-slate-700">
                 <div className="flex justify-between items-start mb-3 sm:mb-6">
                     <div>
@@ -239,7 +314,37 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                             {matchData.winner && <span className="ml-2 text-green-400 font-bold">● 完賽</span>}
                         </div>
                     </div>
-                    {matchData.password && <span className="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800"><i className="fas fa-lock mr-1"></i>Protected</span>}
+                    <div className="flex flex-col items-end gap-2">
+                        {/* 計時器顯示 */}
+                        <div className="bg-slate-900 px-3 py-2 rounded border border-slate-700 flex items-center gap-2">
+                            <i className="fas fa-clock text-yellow-400"></i>
+                            <span className="font-mono text-white font-bold text-sm sm:text-base">{formatTime(elapsedTime)}</span>
+                            <button onClick={togglePause} className="ml-2 text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded">
+                                <i className={`fas fa-${matchData.timing?.isPaused ? 'play' : 'pause'}`}></i>
+                            </button>
+                        </div>
+                        {matchData.password && <span className="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800"><i className="fas fa-lock mr-1"></i>Protected</span>}
+                    </div>
+                </div>
+
+                {/* 統計快捷按鈕 */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                    <button onClick={() => setPendingStatType('aces')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
+                        <i className="fas fa-bolt mb-1"></i>
+                        <span>Ace</span>
+                    </button>
+                    <button onClick={() => setPendingStatType('doubleFaults')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
+                        <i className="fas fa-times-circle mb-1"></i>
+                        <span>雙誤</span>
+                    </button>
+                    <button onClick={() => setPendingStatType('winners')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
+                        <i className="fas fa-star mb-1"></i>
+                        <span>致勝</span>
+                    </button>
+                    <button onClick={() => setPendingStatType('unforcedErrors')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
+                        <i className="fas fa-exclamation-triangle mb-1"></i>
+                        <span>失誤</span>
+                    </button>
                 </div>
 
                 {/* Main Scoreboard Area */}
@@ -294,11 +399,17 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                     <button onClick={toggleServer} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
                         <i className="fas fa-exchange-alt mr-1 sm:mr-2"></i> 換發球
                     </button>
+                    <button onClick={() => setShowStatsModal(!showStatsModal)} className="flex-1 bg-blue-900/50 hover:bg-blue-800/50 active:bg-blue-700/50 text-blue-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                        <i className="fas fa-chart-bar mr-1 sm:mr-2"></i> 統計
+                    </button>
                     <button onClick={deleteMatch} className="flex-1 bg-red-900/50 hover:bg-red-800/50 active:bg-red-700/50 text-red-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
                         <i className="fas fa-trash mr-1 sm:mr-2"></i> 刪除
                     </button>
                 </div>
             </div>
+
+            {/* 統計面板 */}
+            {showStatsModal && <TennisStatsPanel matchData={matchData} />}
         </div>
     );
 };
