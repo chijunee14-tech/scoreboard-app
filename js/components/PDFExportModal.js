@@ -1,352 +1,354 @@
-// ==========================================
-// Component: PDF Export Modal
-// ==========================================
-const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
-    const { useState } = React;
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [progress, setProgress] = useState(0);
+import React, { useState, useRef } from 'react';
 
-    const generatePDF = async () => {
-        setIsGenerating(true);
-        setProgress(10);
+const PDFExportModal = ({ matchData, onClose }) => {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const contentRef = useRef(null);
 
-        try {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
+  const generatePDF = async () => {
+    setIsGenerating(true);
+    try {
+      const element = contentRef.current;
+      
+      // Use html2canvas to convert HTML to image
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
 
-            // 使用支援中文的字體
-            // 注意：基本中文字符可以顯示，複雜字符可能需要額外字體文件
-            doc.setFont('helvetica');
-            
-            let yPos = 20;
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 20;
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth - 20; // 10mm margin on each side
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 10;
 
-            // 標題
-            doc.setFontSize(24);
-            doc.setTextColor(37, 99, 235); // Blue
-            doc.text('Tennis Match Report', pageWidth / 2, yPos, { align: 'center' });
-            yPos += 15;
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - 20);
 
-            setProgress(20);
+      // Add additional pages if content is too long
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+        heightLeft -= (pdfHeight - 20);
+      }
 
-            // 比賽資訊框
-            doc.setFillColor(248, 250, 252);
-            doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 40, 3, 3, 'F');
-            
-            doc.setFontSize(12);
-            doc.setTextColor(51, 65, 85);
-            yPos += 10;
-            // 使用 encodeURIComponent 處理中文，或直接使用英文標籤
-            const matchTitle = matchData.title || 'Match';
-            const matchType = MATCH_MODES[matchData.matchType]?.name || matchData.matchType;
-            doc.text(`Match: ${matchTitle}`, margin + 5, yPos);
-            yPos += 8;
-            doc.text(`Type: ${matchType}`, margin + 5, yPos);
-            yPos += 8;
-            doc.text(`Date: ${new Date().toLocaleDateString('en-US')}`, margin + 5, yPos);
-            yPos += 8;
-            doc.text(`Status: ${matchData.winner ? 'Completed' : 'In Progress'}`, margin + 5, yPos);
-            yPos += 15;
+      // Save the PDF
+      const fileName = `${matchData.player1Name}_vs_${matchData.player2Name}_${new Date().toLocaleDateString('zh-TW')}.pdf`;
+      pdf.save(fileName);
 
-            setProgress(30);
+      alert('PDF 報告已成功產生！');
+    } catch (error) {
+      console.error('PDF 產生錯誤:', error);
+      alert('PDF 產生失敗，請稍後再試。');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-            // 比分區塊
-            doc.setFontSize(16);
-            doc.setTextColor(37, 99, 235);
-            doc.text('Final Score', margin, yPos);
-            yPos += 5;
-            
-            // 選手名稱映射說明
-            doc.setFontSize(10);
-            doc.setTextColor(100, 116, 139);
-            doc.text(`Player A = ${matchData.teamA} | Player B = ${matchData.teamB}`, margin + 5, yPos);
-            yPos += 10;
+  // Calculate statistics
+  const stats = matchData.stats || {};
+  const totalPoints = stats.totalPoints || 0;
+  const aces = stats.aces || [0, 0];
+  const doubleFaults = stats.doubleFaults || [0, 0];
+  const winners = stats.winners || [0, 0];
+  const unforcedErrors = stats.unforcedErrors || [0, 0];
+  const breakPoints = stats.breakPoints || [0, 0];
+  const breakPointsWon = stats.breakPointsWon || [0, 0];
+  const firstServeIn = stats.firstServeIn || [0, 0];
+  const firstServeTotal = stats.firstServeTotal || [0, 0];
+  const firstServeWon = stats.firstServeWon || [0, 0];
+  const secondServeWon = stats.secondServeWon || [0, 0];
+  const secondServeTotal = firstServeTotal.map((total, i) => total - firstServeIn[i]);
 
-            // 選手 A
-            doc.setFontSize(14);
-            doc.setTextColor(59, 130, 246); // Blue
-            // 使用 Player A/B 標籤，中文名稱放在括號中
-            doc.text(`Player A: ${matchData.teamA}`, margin + 5, yPos);
-            doc.setFontSize(20);
-            doc.setFont('helvetica', 'bold');
-            doc.text(matchData.setsA.join(' - '), pageWidth - margin - 40, yPos, { align: 'right' });
-            yPos += 10;
+  const firstServePercent = firstServeTotal.map((total, i) => 
+    total > 0 ? Math.round((firstServeIn[i] / total) * 100) : 0
+  );
+  const firstServeWinPercent = firstServeIn.map((serveIn, i) => 
+    serveIn > 0 ? Math.round((firstServeWon[i] / serveIn) * 100) : 0
+  );
+  const secondServeWinPercent = secondServeTotal.map((total, i) => 
+    total > 0 ? Math.round((secondServeWon[i] / total) * 100) : 0
+  );
+  const breakPointPercent = breakPoints.map((bp, i) => 
+    bp > 0 ? Math.round((breakPointsWon[i] / bp) * 100) : 0
+  );
 
-            // 選手 B
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(14);
-            doc.setTextColor(34, 197, 94); // Green
-            doc.text(`Player B: ${matchData.teamB}`, margin + 5, yPos);
-            doc.setFontSize(20);
-            doc.setFont('helvetica', 'bold');
-            doc.text(matchData.setsB.join(' - '), pageWidth - margin - 40, yPos, { align: 'right' });
-            yPos += 15;
+  // Format duration
+  const formatDuration = (ms) => {
+    if (!ms) return 'N/A';
+    const minutes = Math.floor(ms / 60000);
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}時${mins}分` : `${mins}分`;
+  };
 
-            setProgress(40);
-
-            // 勝者標記
-            if (matchData.winner) {
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(12);
-                doc.setTextColor(234, 179, 8); // Yellow
-                const winnerLabel = matchData.winner === 'A' ? 'Player A' : 'Player B';
-                const winnerName = matchData.winner === 'A' ? matchData.teamA : matchData.teamB;
-                doc.text(`Winner: ${winnerLabel} (${winnerName})`, margin + 5, yPos);
-                yPos += 15;
-            }
-
-            setProgress(50);
-
-            // 統計表格
-            doc.setFontSize(16);
-            doc.setTextColor(37, 99, 235);
-            doc.text('Match Statistics', margin, yPos);
-            yPos += 10;
-
-            const statsA = matchData.stats?.teamA || {};
-            const statsB = matchData.stats?.teamB || {};
-
-            // 準備統計表格數據
-            const statsData = [
-                ['Statistic', 'Player A', 'Player B'],
-                ['Aces', statsA.aces || 0, statsB.aces || 0],
-                ['Double Faults', statsA.doubleFaults || 0, statsB.doubleFaults || 0],
-                ['Winners', statsA.winners || 0, statsB.winners || 0],
-                ['Unforced Errors', statsA.unforcedErrors || 0, statsB.unforcedErrors || 0],
-                ['Total Points', statsA.totalPoints || 0, statsB.totalPoints || 0],
-            ];
-
-            // 破發點轉換率
-            const breakConvA = statsA.breakPointsTotal > 0 
-                ? `${statsA.breakPointsWon || 0}/${statsA.breakPointsTotal} (${Math.round(((statsA.breakPointsWon || 0) / statsA.breakPointsTotal) * 100)}%)`
-                : '0/0 (0%)';
-            const breakConvB = statsB.breakPointsTotal > 0 
-                ? `${statsB.breakPointsWon || 0}/${statsB.breakPointsTotal} (${Math.round(((statsB.breakPointsWon || 0) / statsB.breakPointsTotal) * 100)}%)`
-                : '0/0 (0%)';
-            statsData.push(['Break Points', breakConvA, breakConvB]);
-
-            // 一發得分率
-            if (statsA.firstServeTotal || statsB.firstServeTotal) {
-                const firstServeA = statsA.firstServeTotal > 0 
-                    ? `${statsA.firstServeWon || 0}/${statsA.firstServeTotal} (${Math.round(((statsA.firstServeWon || 0) / statsA.firstServeTotal) * 100)}%)`
-                    : '0/0 (0%)';
-                const firstServeB = statsB.firstServeTotal > 0 
-                    ? `${statsB.firstServeWon || 0}/${statsB.firstServeTotal} (${Math.round(((statsB.firstServeWon || 0) / statsB.firstServeTotal) * 100)}%)`
-                    : '0/0 (0%)';
-                statsData.push(['1st Serve Win Rate', firstServeA, firstServeB]);
-            }
-
-            // 二發得分率
-            if (statsA.secondServeTotal || statsB.secondServeTotal) {
-                const secondServeA = statsA.secondServeTotal > 0 
-                    ? `${statsA.secondServeWon || 0}/${statsA.secondServeTotal} (${Math.round(((statsA.secondServeWon || 0) / statsA.secondServeTotal) * 100)}%)`
-                    : '0/0 (0%)';
-                const secondServeB = statsB.secondServeTotal > 0 
-                    ? `${statsB.secondServeWon || 0}/${statsB.secondServeTotal} (${Math.round(((statsB.secondServeWon || 0) / statsB.secondServeTotal) * 100)}%)`
-                    : '0/0 (0%)';
-                statsData.push(['2nd Serve Win Rate', secondServeA, secondServeB]);
-            }
-
-            setProgress(60);
-
-            // 使用 autoTable 插件生成表格
-            doc.autoTable({
-                startY: yPos,
-                head: [statsData[0]],
-                body: statsData.slice(1),
-                theme: 'grid',
-                headStyles: {
-                    fillColor: [37, 99, 235],
-                    textColor: [255, 255, 255],
-                    fontStyle: 'bold',
-                    halign: 'center'
-                },
-                bodyStyles: {
-                    halign: 'center'
-                },
-                columnStyles: {
-                    0: { fontStyle: 'bold', halign: 'left' },
-                    1: { textColor: [59, 130, 246] },
-                    2: { textColor: [34, 197, 94] }
-                },
-                margin: { left: margin, right: margin }
-            });
-
-            yPos = doc.lastAutoTable.finalY + 15;
-
-            setProgress(70);
-
-            // 如果有歷史記錄，添加新頁面
-            if (history && history.length > 0) {
-                doc.addPage();
-                yPos = 20;
-
-                doc.setFontSize(16);
-                doc.setTextColor(37, 99, 235);
-                doc.text('Match Timeline', margin, yPos);
-                yPos += 10;
-
-                // 準備歷史記錄表格（只取最近 20 條）
-                const recentHistory = history.slice(-20);
-                const historyData = [['Time', 'Event', 'Score']];
-
-                recentHistory.forEach(item => {
-                    let time = '--:--';
-                    try {
-                        if (item.timestamp?.toDate) {
-                            time = item.timestamp.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-                        } else if (item.timestamp) {
-                            time = new Date(item.timestamp).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-                        }
-                    } catch (e) {
-                        console.error('Timestamp parsing error:', e);
-                    }
-
-                    historyData.push([
-                        time,
-                        `${item.action || ''} ${item.detail || ''}`.trim(),
-                        item.scoreSnapshot || ''
-                    ]);
-                });
-
-                doc.autoTable({
-                    startY: yPos,
-                    head: [historyData[0]],
-                    body: historyData.slice(1),
-                    theme: 'striped',
-                    headStyles: {
-                        fillColor: [37, 99, 235],
-                        textColor: [255, 255, 255],
-                        fontStyle: 'bold'
-                    },
-                    columnStyles: {
-                        0: { cellWidth: 25 },
-                        1: { cellWidth: 'auto' },
-                        2: { cellWidth: 40, halign: 'center' }
-                    },
-                    margin: { left: margin, right: margin }
-                });
-
-                setProgress(90);
-            }
-
-            // 頁尾資訊
-            const totalPages = doc.internal.getNumberOfPages();
-            for (let i = 1; i <= totalPages; i++) {
-                doc.setPage(i);
-                doc.setFontSize(10);
-                doc.setTextColor(148, 163, 184);
-                doc.text(
-                    `Page ${i} of ${totalPages}`,
-                    pageWidth / 2,
-                    pageHeight - 10,
-                    { align: 'center' }
-                );
-                doc.text(
-                    `Generated by Tennis Pro Score - ${new Date().toLocaleString('zh-TW')}`,
-                    pageWidth / 2,
-                    pageHeight - 5,
-                    { align: 'center' }
-                );
-            }
-
-            setProgress(100);
-
-            // 儲存 PDF
-            const fileName = `${matchData.title.replace(/[^a-zA-Z0-9]/g, '_')}_Report_${Date.now()}.pdf`;
-            doc.save(fileName);
-
-            setTimeout(() => {
-                setIsGenerating(false);
-                setProgress(0);
-                onClose();
-            }, 500);
-
-        } catch (error) {
-            console.error('PDF generation error:', error);
-            alert('PDF 生成失敗，請稍後再試');
-            setIsGenerating(false);
-            setProgress(0);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 rounded-xl p-6 max-w-md w-full border border-slate-700 shadow-2xl">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-white flex items-center">
-                        <i className="fas fa-file-pdf text-red-500 mr-2"></i>
-                        匯出 PDF 報告
-                    </h3>
-                    {!isGenerating && (
-                        <button onClick={onClose} className="text-slate-400 hover:text-white">
-                            <i className="fas fa-times fa-lg"></i>
-                        </button>
-                    )}
-                </div>
-
-                {!isGenerating ? (
-                    <div>
-                        <div className="bg-slate-900 p-4 rounded-lg mb-4">
-                            <div className="text-slate-300 text-sm mb-3">報告將包含：</div>
-                            <ul className="text-slate-400 text-sm space-y-2">
-                                <li className="flex items-center">
-                                    <i className="fas fa-check text-green-500 mr-2"></i>
-                                    完整比賽資訊和最終比分
-                                </li>
-                                <li className="flex items-center">
-                                    <i className="fas fa-check text-green-500 mr-2"></i>
-                                    詳細統計數據表格
-                                </li>
-                                <li className="flex items-center">
-                                    <i className="fas fa-check text-green-500 mr-2"></i>
-                                    破發點轉換率分析
-                                </li>
-                                <li className="flex items-center">
-                                    <i className="fas fa-check text-green-500 mr-2"></i>
-                                    發球得分率統計
-                                </li>
-                                <li className="flex items-center">
-                                    <i className="fas fa-check text-green-500 mr-2"></i>
-                                    比賽時間軸 (最近 20 條)
-                                </li>
-                            </ul>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <button
-                                onClick={onClose}
-                                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition font-semibold"
-                            >
-                                取消
-                            </button>
-                            <button
-                                onClick={generatePDF}
-                                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition font-semibold flex items-center justify-center"
-                            >
-                                <i className="fas fa-download mr-2"></i>
-                                生成 PDF
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="text-center py-8">
-                        <div className="mb-4">
-                            <i className="fas fa-spinner fa-spin text-blue-500 text-4xl"></i>
-                        </div>
-                        <div className="text-white text-lg font-semibold mb-3">正在生成 PDF...</div>
-                        <div className="bg-slate-900 rounded-full h-3 overflow-hidden mb-2">
-                            <div
-                                className="bg-blue-500 h-full transition-all duration-300"
-                                style={{ width: `${progress}%` }}
-                            ></div>
-                        </div>
-                        <div className="text-slate-400 text-sm">{progress}%</div>
-                    </div>
-                )}
-            </div>
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+          <h2 className="text-2xl font-bold text-gray-800">PDF 賽後報告</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={generatePDF}
+              disabled={isGenerating}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isGenerating ? '產生中...' : '下載 PDF'}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
+            >
+              關閉
+            </button>
+          </div>
         </div>
-    );
+
+        {/* PDF Content Preview */}
+        <div ref={contentRef} className="bg-white p-8">
+          {/* Title */}
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">網球比賽報告</h1>
+            <p className="text-gray-600">
+              {new Date(matchData.startTime).toLocaleDateString('zh-TW', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long'
+              })}
+            </p>
+          </div>
+
+          {/* Match Summary */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">比賽結果</h2>
+            <div className="grid grid-cols-3 gap-4 items-center">
+              <div className="text-right">
+                <p className="text-2xl font-bold text-gray-800">{matchData.player1Name}</p>
+                <p className="text-sm text-gray-600">{matchData.player1Team || '個人'}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-bold text-blue-600">
+                  {matchData.sets[0]} - {matchData.sets[1]}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">局數</p>
+              </div>
+              <div className="text-left">
+                <p className="text-2xl font-bold text-gray-800">{matchData.player2Name}</p>
+                <p className="text-sm text-gray-600">{matchData.player2Team || '個人'}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Set Scores */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">各盤比分</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2 text-left">選手</th>
+                    {matchData.history.map((_, index) => (
+                      <th key={index} className="border border-gray-300 px-4 py-2 text-center">
+                        第 {index + 1} 盤
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2 font-semibold">
+                      {matchData.player1Name}
+                    </td>
+                    {matchData.history.map((set, index) => (
+                      <td key={index} className="border border-gray-300 px-4 py-2 text-center text-lg">
+                        {set.games[0]}
+                        {set.tiebreak && set.tiebreak[0] !== undefined && (
+                          <sup className="text-sm text-gray-600"> ({set.tiebreak[0]})</sup>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2 font-semibold">
+                      {matchData.player2Name}
+                    </td>
+                    {matchData.history.map((set, index) => (
+                      <td key={index} className="border border-gray-300 px-4 py-2 text-center text-lg">
+                        {set.games[1]}
+                        {set.tiebreak && set.tiebreak[1] !== undefined && (
+                          <sup className="text-sm text-gray-600"> ({set.tiebreak[1]})</sup>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Match Information */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">比賽資訊</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">比賽時間</p>
+                <p className="text-lg font-semibold text-gray-800">
+                  {formatDuration(matchData.duration)}
+                </p>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">比賽類型</p>
+                <p className="text-lg font-semibold text-gray-800">
+                  {matchData.bestOf === 3 ? '三盤兩勝' : '五盤三勝'}
+                </p>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">首發球員</p>
+                <p className="text-lg font-semibold text-gray-800">
+                  {matchData.firstServer === 0 ? matchData.player1Name : matchData.player2Name}
+                </p>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">總分數</p>
+                <p className="text-lg font-semibold text-gray-800">{totalPoints} 分</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Statistics Table */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">技術統計</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2 text-left">統計項目</th>
+                    <th className="border border-gray-300 px-4 py-2 text-center">{matchData.player1Name}</th>
+                    <th className="border border-gray-300 px-4 py-2 text-center">{matchData.player2Name}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2">Aces</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{aces[0]}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{aces[1]}</td>
+                  </tr>
+                  <tr className="bg-gray-50">
+                    <td className="border border-gray-300 px-4 py-2">雙發失誤</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{doubleFaults[0]}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{doubleFaults[1]}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2">致勝球</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{winners[0]}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{winners[1]}</td>
+                  </tr>
+                  <tr className="bg-gray-50">
+                    <td className="border border-gray-300 px-4 py-2">非受迫性失誤</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{unforcedErrors[0]}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">{unforcedErrors[1]}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2">破發點</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {breakPointsWon[0]}/{breakPoints[0]} ({breakPointPercent[0]}%)
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {breakPointsWon[1]}/{breakPoints[1]} ({breakPointPercent[1]}%)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Serve Statistics */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">發球統計</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2 text-left">項目</th>
+                    <th className="border border-gray-300 px-4 py-2 text-center">{matchData.player1Name}</th>
+                    <th className="border border-gray-300 px-4 py-2 text-center">{matchData.player2Name}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2">一發進球率</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {firstServeIn[0]}/{firstServeTotal[0]} ({firstServePercent[0]}%)
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {firstServeIn[1]}/{firstServeTotal[1]} ({firstServePercent[1]}%)
+                    </td>
+                  </tr>
+                  <tr className="bg-gray-50">
+                    <td className="border border-gray-300 px-4 py-2">一發得分率</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {firstServeWon[0]}/{firstServeIn[0]} ({firstServeWinPercent[0]}%)
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {firstServeWon[1]}/{firstServeIn[1]} ({firstServeWinPercent[1]}%)
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 px-4 py-2">二發得分率</td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {secondServeWon[0]}/{secondServeTotal[0]} ({secondServeWinPercent[0]}%)
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
+                      {secondServeWon[1]}/{secondServeTotal[1]} ({secondServeWinPercent[1]}%)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Set Timeline */}
+          {matchData.history && matchData.history.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-bold text-gray-800 mb-4 border-b-2 border-blue-600 pb-2">比賽時間軸</h2>
+              <div className="space-y-3">
+                {matchData.history.map((set, index) => (
+                  <div key={index} className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-gray-800">第 {index + 1} 盤</span>
+                      <span className="text-gray-600">
+                        {set.games[0]} - {set.games[1]}
+                        {set.tiebreak && ` (搶七 ${set.tiebreak[0]}-${set.tiebreak[1]})`}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {formatDuration(set.duration)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="text-center text-sm text-gray-500 mt-8 pt-4 border-t">
+            <p>報告產生時間：{new Date().toLocaleString('zh-TW')}</p>
+            <p className="mt-1">Tennis Scoreboard App - 專業網球計分系統</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
+
+export default PDFExportModal;
