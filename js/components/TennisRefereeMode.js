@@ -5,7 +5,6 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
     const { useState, useEffect } = React;
     const [elapsedTime, setElapsedTime] = useState(0);
     const [showStatsModal, setShowStatsModal] = useState(false);
-    const [pendingStatType, setPendingStatType] = useState(null);
 
     // 計時器邏輯
     useEffect(() => {
@@ -49,13 +48,37 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
         }
     };
 
-    const recordStat = async (team, statType) => {
+    // 處理統計並自動計分
+    const handleStatAndPoint = async (statType, team) => {
+        if (matchData.winner) return;
+        
+        // 先記錄統計
         const fieldPath = `stats.${team}.${statType}`;
         const currentValue = matchData.stats?.[team]?.[statType] || 0;
         await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('matches').doc(matchId).update({
             [fieldPath]: currentValue + 1
         });
-        setPendingStatType(null);
+        
+        // 判斷誰得分
+        let winner;
+        if (statType === 'aces') {
+            // Ace: 發球方得分
+            winner = matchData.server;
+        } else if (statType === 'doubleFaults') {
+            // 雙發失誤: 接球方得分
+            winner = matchData.server === 'A' ? 'B' : 'A';
+        } else if (statType === 'winners') {
+            // 致勝球: 該隊得分
+            winner = team === 'teamA' ? 'A' : 'B';
+        } else if (statType === 'unforcedErrors') {
+            // 失誤: 對方得分
+            winner = team === 'teamA' ? 'B' : 'A';
+        }
+        
+        // 自動計分
+        if (winner) {
+            await handlePoint(winner);
+        }
     };
     
     const handlePoint = async (winner) => {
@@ -283,30 +306,10 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
 
     return (
         <div className="p-2 sm:p-4 max-w-4xl mx-auto">
-            {/* 統計快捷記錄模態框 */}
-            {pendingStatType && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700 p-6">
-                        <h3 className="text-xl font-bold text-yellow-400 mb-4 text-center">記錄 {pendingStatType === 'aces' ? 'Ace' : pendingStatType === 'doubleFaults' ? '雙發失誤' : pendingStatType === 'winners' ? '致勝球' : '非受迫性失誤'}</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <button onClick={() => recordStat('teamA', pendingStatType)} className="p-6 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white text-lg">
-                                {matchData.teamA}
-                            </button>
-                            <button onClick={() => recordStat('teamB', pendingStatType)} className="p-6 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-white text-lg">
-                                {matchData.teamB}
-                            </button>
-                        </div>
-                        <button onClick={() => setPendingStatType(null)} className="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded">
-                            取消
-                        </button>
-                    </div>
-                </div>
-            )}
-
             <div className="bg-slate-800 rounded-xl p-3 sm:p-6 shadow-lg border border-slate-700">
                 <div className="flex justify-between items-start mb-3 sm:mb-6">
                     <div>
-                        <h2 className="text-base sm:text-xl font-bold text-yellow-400"><i className="fas fa-gavel mr-1 sm:mr-2"></i>網球裁判台</h2>
+                        <h2 className="text-base sm:text-xl font-bold text-yellow-400">裁判台</h2>
                         <h3 className="text-sm sm:text-base text-white font-bold truncate">{matchData.title}</h3>
                         <div className="text-xs text-slate-400 mt-1">
                             {MATCH_MODES[matchData.matchType]?.name}
@@ -327,23 +330,21 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                     </div>
                 </div>
 
-                {/* 統計快捷按鈕 */}
-                <div className="grid grid-cols-4 gap-2 mb-4">
-                    <button onClick={() => setPendingStatType('aces')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
-                        <i className="fas fa-bolt mb-1"></i>
-                        <span>Ace</span>
+                {/* Ace 和雙發失誤按鈕 - 保持在上方 */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                    <button 
+                        onClick={() => handleStatAndPoint('aces', matchData.server === 'A' ? 'teamA' : 'teamB')} 
+                        disabled={!!matchData.winner}
+                        className="bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 rounded text-sm sm:text-base flex items-center justify-center gap-2 font-bold shadow-lg touch-manipulation">
+                        <i className="fas fa-bolt"></i>
+                        <span>Ace ({matchData.server === 'A' ? matchData.teamA : matchData.teamB} 得分)</span>
                     </button>
-                    <button onClick={() => setPendingStatType('doubleFaults')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
-                        <i className="fas fa-times-circle mb-1"></i>
-                        <span>雙誤</span>
-                    </button>
-                    <button onClick={() => setPendingStatType('winners')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
-                        <i className="fas fa-star mb-1"></i>
-                        <span>致勝</span>
-                    </button>
-                    <button onClick={() => setPendingStatType('unforcedErrors')} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center">
-                        <i className="fas fa-exclamation-triangle mb-1"></i>
-                        <span>失誤</span>
+                    <button 
+                        onClick={() => handleStatAndPoint('doubleFaults', matchData.server === 'A' ? 'teamA' : 'teamB')} 
+                        disabled={!!matchData.winner}
+                        className="bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 rounded text-sm sm:text-base flex items-center justify-center gap-2 font-bold shadow-lg touch-manipulation">
+                        <i className="fas fa-times-circle"></i>
+                        <span>雙誤 ({matchData.server === 'A' ? matchData.teamB : matchData.teamA} 得分)</span>
                     </button>
                 </div>
 
@@ -352,8 +353,27 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                     {/* Player A */}
                     <div className={`relative p-3 sm:p-6 rounded-xl border-2 transition ${matchData.winner === 'A' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
                         {matchData.server === 'A' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-2 sm:top-4 left-2 sm:left-4 text-yellow-400 animate-bounce text-sm sm:text-base"></i>}
-                        <h3 className="player-name-referee font-bold text-white mb-1 sm:mb-2 truncate w-full text-center">{matchData.teamA}</h3>
-                        <div className="score-display leading-none font-mono font-bold text-blue-400 my-1 sm:my-2">{ptA !== '' && ptA !== null && ptA !== undefined ? ptA : '\u00A0'}</div>
+                        <h3 className="player-name-referee font-bold text-white mb-2 truncate w-full text-center">{matchData.teamA}</h3>
+                        
+                        {/* 致勝和失誤按鈕 - 選手 A */}
+                        <div className="w-full grid grid-cols-2 gap-2 mb-3">
+                            <button 
+                                onClick={() => handleStatAndPoint('winners', 'teamA')} 
+                                disabled={!!matchData.winner}
+                                className="bg-green-700 hover:bg-green-600 active:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center shadow touch-manipulation">
+                                <i className="fas fa-star mb-1"></i>
+                                <span>致勝</span>
+                            </button>
+                            <button 
+                                onClick={() => handleStatAndPoint('unforcedErrors', 'teamA')} 
+                                disabled={!!matchData.winner}
+                                className="bg-orange-700 hover:bg-orange-600 active:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center shadow touch-manipulation">
+                                <i className="fas fa-exclamation-triangle mb-1"></i>
+                                <span>失誤</span>
+                            </button>
+                        </div>
+                        
+                        <div className="score-display leading-none font-mono font-bold text-blue-400 my-2">{ptA !== '' && ptA !== null && ptA !== undefined ? ptA : '\u00A0'}</div>
                         <button onClick={() => handlePoint('A')} disabled={!!matchData.winner} className="w-full py-3 sm:py-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-base sm:text-xl shadow-lg btn-press touch-manipulation">
                             得分 +1
                         </button>
@@ -362,8 +382,27 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                     {/* Player B */}
                     <div className={`relative p-3 sm:p-6 rounded-xl border-2 transition ${matchData.winner === 'B' ? 'border-yellow-500 bg-yellow-900/20' : 'border-slate-600 bg-slate-900'} flex flex-col items-center`}>
                         {matchData.server === 'B' && !matchData.winner && <i className="fas fa-baseball-ball absolute top-2 sm:top-4 left-2 sm:left-4 text-yellow-400 animate-bounce text-sm sm:text-base"></i>}
-                        <h3 className="player-name-referee font-bold text-white mb-1 sm:mb-2 truncate w-full text-center">{matchData.teamB}</h3>
-                        <div className="score-display leading-none font-mono font-bold text-blue-400 my-1 sm:my-2">{ptB !== '' && ptB !== null && ptB !== undefined ? ptB : '\u00A0'}</div>
+                        <h3 className="player-name-referee font-bold text-white mb-2 truncate w-full text-center">{matchData.teamB}</h3>
+                        
+                        {/* 致勝和失誤按鈕 - 選手 B */}
+                        <div className="w-full grid grid-cols-2 gap-2 mb-3">
+                            <button 
+                                onClick={() => handleStatAndPoint('winners', 'teamB')} 
+                                disabled={!!matchData.winner}
+                                className="bg-green-700 hover:bg-green-600 active:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center shadow touch-manipulation">
+                                <i className="fas fa-star mb-1"></i>
+                                <span>致勝</span>
+                            </button>
+                            <button 
+                                onClick={() => handleStatAndPoint('unforcedErrors', 'teamB')} 
+                                disabled={!!matchData.winner}
+                                className="bg-orange-700 hover:bg-orange-600 active:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-2 rounded text-xs sm:text-sm flex flex-col items-center justify-center shadow touch-manipulation">
+                                <i className="fas fa-exclamation-triangle mb-1"></i>
+                                <span>失誤</span>
+                            </button>
+                        </div>
+                        
+                        <div className="score-display leading-none font-mono font-bold text-blue-400 my-2">{ptB !== '' && ptB !== null && ptB !== undefined ? ptB : '\u00A0'}</div>
                         <button onClick={() => handlePoint('B')} disabled={!!matchData.winner} className="w-full py-3 sm:py-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-base sm:text-xl shadow-lg btn-press touch-manipulation">
                             得分 +1
                         </button>

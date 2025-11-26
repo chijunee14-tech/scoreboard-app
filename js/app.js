@@ -90,17 +90,19 @@ const App = () => {
                 <main className="max-w-4xl mx-auto grid gap-4">
                     {matches.map(m => (
                         <div key={m.id} className="bg-slate-800 p-4 rounded-lg flex items-center justify-between border border-slate-700 hover:border-blue-500 transition">
-                            <div>
+                            <div className="flex-1">
                                 <div className="text-blue-400 font-bold">{m.title}</div>
                                 <div className="text-xl text-white font-bold my-1">
                                     {m.teamA} <span className="text-slate-500 text-sm mx-1">vs</span> {m.teamB}
                                 </div>
-                                <div className="text-xs">
+                                <div className="text-xs flex items-center gap-2">
                                     <span className="text-slate-500">{MATCH_MODES[m.matchType]?.name}</span>
-                                    <span className="text-slate-500"> • </span>
+                                    <span className="text-slate-500">•</span>
                                     <span className={m.winner ? 'text-slate-500' : 'status-live font-semibold'}>
                                         {m.winner ? '已完賽' : '進行中'}
                                     </span>
+                                    {!m.winner && <span className="text-slate-500">•</span>}
+                                    {!m.winner && <MatchTimerDisplay matchData={m} />}
                                 </div>
                             </div>
                             <div className="flex gap-2">
