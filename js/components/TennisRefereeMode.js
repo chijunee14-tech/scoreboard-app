@@ -241,7 +241,21 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             action: matchWon ? 'Match Finished' : (setWon ? 'Set Finished' : (gameWon ? 'Game Finished' : 'Point')),
             detail: `${winner === 'A' ? d.teamA : d.teamB} wins point`,
-            scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`
+            scoreSnapshot: `Set:${d.setsA.join('-')}/${d.setsB.join('-')} | Pt:${formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak)}-${formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak)}`,
+            // 詳細分數資訊
+            detailedScore: {
+                setsA: [...d.setsA],
+                setsB: [...d.setsB],
+                scoreA: d.scoreA,
+                scoreB: d.scoreB,
+                pointA: formatTennisPoint(d.scoreA, d.scoreB, d.isTieBreak),
+                pointB: formatTennisPoint(d.scoreB, d.scoreA, d.isTieBreak),
+                currentSetIndex: d.currentSetIndex,
+                isTieBreak: d.isTieBreak,
+                server: d.server,
+                wasBreakPoint: isBreakPoint.isBreakPoint,
+                wasBreak: gameWon && (d.server !== winner)
+            }
         };
 
         console.log('Creating history log:', log);

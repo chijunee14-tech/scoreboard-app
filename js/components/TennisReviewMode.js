@@ -7,8 +7,21 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
     const [loading, setLoading] = useState(true);
 
     const exportToCSV = () => {
+        // 處理欄位中的逗號和引號，避免 CSV 格式錯誤
+        const escapeCSV = (str) => {
+            if (typeof str !== 'string') str = String(str);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        };
+        
+        // 準備統計數據
+        const statsA = matchData.stats?.teamA || {};
+        const statsB = matchData.stats?.teamB || {};
+        
         // 準備 CSV 標題
-        const headers = ['時間', '事件', '詳情', '當時比分'];
+        const headers = ['時間', '事件', '詳情', '當時比分 (Set | Pt)', '盤數詳情', '小分', '發球方', '破發點', '破發成功'];
         
         // 準備 CSV 資料行
         const rows = history.map(item => {
@@ -37,22 +50,35 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
                 console.error('Timestamp parsing error:', e);
             }
             
-            // 處理欄位中的逗號和引號，避免 CSV 格式錯誤
-            const escapeCSV = (str) => {
-                if (typeof str !== 'string') str = String(str);
-                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-                    return `"${str.replace(/"/g, '""')}"`;
-                }
-                return str;
-            };
+            // 提取詳細分數資訊
+            const detailed = item.detailedScore || {};
+            const setsDetail = detailed.setsA && detailed.setsB ? 
+                `${matchData.teamA}: ${detailed.setsA.join('-')} | ${matchData.teamB}: ${detailed.setsB.join('-')}` : '';
+            const pointDetail = detailed.pointA && detailed.pointB ? 
+                `${detailed.pointA} - ${detailed.pointB}` : '';
+            const serverName = detailed.server === 'A' ? matchData.teamA : 
+                              detailed.server === 'B' ? matchData.teamB : '';
+            const breakPoint = detailed.wasBreakPoint ? '是' : '否';
+            const breakSuccess = detailed.wasBreak ? '是' : '否';
             
             return [
                 escapeCSV(time),
                 escapeCSV(item.action || ''),
                 escapeCSV(item.detail || ''),
-                escapeCSV(item.scoreSnapshot || '')
+                escapeCSV(item.scoreSnapshot || ''),
+                escapeCSV(setsDetail),
+                escapeCSV(pointDetail),
+                escapeCSV(serverName),
+                escapeCSV(breakPoint),
+                escapeCSV(breakSuccess)
             ].join(',');
         });
+        
+        // 計算破發點轉換率
+        const breakPointConversionA = statsA.breakPointsTotal > 0 ? 
+            `${statsA.breakPointsWon || 0}/${statsA.breakPointsTotal} (${Math.round(((statsA.breakPointsWon || 0) / statsA.breakPointsTotal) * 100)}%)` : '0/0 (0%)';
+        const breakPointConversionB = statsB.breakPointsTotal > 0 ? 
+            `${statsB.breakPointsWon || 0}/${statsB.breakPointsTotal} (${Math.round(((statsB.breakPointsWon || 0) / statsB.breakPointsTotal) * 100)}%)` : '0/0 (0%)';
         
         // 組合 CSV 內容（加入 BOM 以支援 Excel 正確顯示中文）
         const csvContent = '\uFEFF' + [
@@ -63,6 +89,15 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
             `最終比分: ${matchData.setsA.join('-')} vs ${matchData.setsB.join('-')}`,
             `比賽狀態: ${matchData.winner ? `完賽 (勝者: ${matchData.winner === 'A' ? matchData.teamA : matchData.teamB})` : '進行中'}`,
             '',
+            '=== 比賽統計 ===',
+            `統計項目,${matchData.teamA},${matchData.teamB}`,
+            `Aces,${statsA.aces || 0},${statsB.aces || 0}`,
+            `雙發失誤,${statsA.doubleFaults || 0},${statsB.doubleFaults || 0}`,
+            `致勝球,${statsA.winners || 0},${statsB.winners || 0}`,
+            `非受迫性失誤,${statsA.unforcedErrors || 0},${statsB.unforcedErrors || 0}`,
+            `破發點轉換率,${breakPointConversionA},${breakPointConversionB}`,
+            '',
+            '=== 比賽紀錄 ===',
             headers.join(','),
             ...rows
         ].join('\n');
@@ -195,6 +230,11 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
                                     } catch (e) {
                                         console.error('Timestamp parsing error:', e);
                                     }
+                                    
+                                    // 提取詳細分數資訊用於顯示
+                                    const detailed = item.detailedScore || {};
+                                    const hasDetailedInfo = detailed.setsA && detailed.setsB;
+                                    
                                     return (
                                         <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
                                             <td className="py-3 px-3 font-mono text-slate-500">{time}</td>
@@ -202,8 +242,18 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${item.action.includes('Match') ? 'bg-yellow-900 text-yellow-400' : (item.action.includes('Set') ? 'bg-green-900 text-green-400' : 'bg-slate-700')}`}>
                                                     {item.action}
                                                 </span>
+                                                {detailed.wasBreakPoint && <span className="ml-2 px-2 py-1 rounded text-xs font-bold bg-orange-900 text-orange-400" title="破發點">BP</span>}
+                                                {detailed.wasBreak && <span className="ml-2 px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-400" title="破發成功">BREAK</span>}
                                             </td>
-                                            <td className="py-3 px-3 text-slate-300">{item.detail}</td>
+                                            <td className="py-3 px-3 text-slate-300">
+                                                <div>{item.detail}</div>
+                                                {hasDetailedInfo && (
+                                                    <div className="text-xs text-slate-500 mt-1">
+                                                        {detailed.server && <span className="mr-2">發球: {detailed.server === 'A' ? matchData.teamA : matchData.teamB}</span>}
+                                                        {detailed.isTieBreak && <span className="text-red-400 font-bold">搶七</span>}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="py-3 px-3 text-right font-mono text-yellow-500">{item.scoreSnapshot}</td>
                                         </tr>
                                     );
