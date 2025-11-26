@@ -31,6 +31,7 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
     const { useState, useEffect } = React;
     const [elapsedTime, setElapsedTime] = useState(0);
     const [showStatsModal, setShowStatsModal] = useState(false);
+    const [showSnapshotModal, setShowSnapshotModal] = useState(false);
 
     // 計時器邏輯
     useEffect(() => {
@@ -157,6 +158,11 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
         // 2. 增加分數
         if (winner === 'A') d.scoreA++;
         else d.scoreB++;
+        
+        // 2.0.5 更新總得分統計
+        if (!d.stats) d.stats = { teamA: {}, teamB: {} };
+        const winnerTeam = winner === 'A' ? 'teamA' : 'teamB';
+        d.stats[winnerTeam].totalPoints = (d.stats[winnerTeam].totalPoints || 0) + 1;
 
         // 2.1 處理 Tiebreak 發球規則（第一球後，每兩球換發球）
         if (isTb || d.matchType === 'tiebreak') {
@@ -192,6 +198,18 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                 const receiverTeam = isBreakPoint.receiverTeam === 'A' ? 'teamA' : 'teamB';
                 const currentWon = d.stats[receiverTeam].breakPointsWon || 0;
                 d.stats[receiverTeam].breakPointsWon = currentWon + 1;
+            }
+            
+            // 記錄發球局得分和接發球局得分
+            const serverTeam = d.server === 'A' ? 'teamA' : 'teamB';
+            const receiverTeam = d.server === 'A' ? 'teamB' : 'teamA';
+            
+            if (wasBreak) {
+                // 破發成功，接發球方贏得這局
+                d.stats[receiverTeam].returnGamesWon = (d.stats[receiverTeam].returnGamesWon || 0) + 1;
+            } else {
+                // 保發成功，發球方贏得這局
+                d.stats[serverTeam].serviceGamesWon = (d.stats[serverTeam].serviceGamesWon || 0) + 1;
             }
             
             d.scoreA = 0;
@@ -519,24 +537,34 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
                     </table>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-between items-stretch pt-3 sm:pt-4 border-t border-slate-700">
-                    <button onClick={undoLastPoint} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
-                        <i className="fas fa-undo mr-1 sm:mr-2"></i> 上一步
-                    </button>
-                    <button onClick={toggleServer} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
-                        <i className="fas fa-exchange-alt mr-1 sm:mr-2"></i> 換發球
-                    </button>
-                    <button onClick={() => setShowStatsModal(!showStatsModal)} className="flex-1 bg-blue-900/50 hover:bg-blue-800/50 active:bg-blue-700/50 text-blue-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
-                        <i className="fas fa-chart-bar mr-1 sm:mr-2"></i> 統計
-                    </button>
-                    <button onClick={deleteMatch} className="flex-1 bg-red-900/50 hover:bg-red-800/50 active:bg-red-700/50 text-red-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
-                        <i className="fas fa-trash mr-1 sm:mr-2"></i> 刪除
-                    </button>
+                <div className="flex flex-col gap-2 pt-3 sm:pt-4 border-t border-slate-700">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                        <button onClick={undoLastPoint} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                            <i className="fas fa-undo mr-1 sm:mr-2"></i> 上一步
+                        </button>
+                        <button onClick={toggleServer} className="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                            <i className="fas fa-exchange-alt mr-1 sm:mr-2"></i> 換發球
+                        </button>
+                        <button onClick={() => setShowStatsModal(!showStatsModal)} className="flex-1 bg-blue-900/50 hover:bg-blue-800/50 active:bg-blue-700/50 text-blue-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                            <i className="fas fa-chart-bar mr-1 sm:mr-2"></i> 統計
+                        </button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                        <button onClick={() => setShowSnapshotModal(true)} className="flex-1 bg-blue-600 hover:bg-blue-500 active:bg-blue-400 text-white py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                            <i className="fas fa-camera mr-1 sm:mr-2"></i> 快速截圖
+                        </button>
+                        <button onClick={deleteMatch} className="flex-1 bg-red-900/50 hover:bg-red-800/50 active:bg-red-700/50 text-red-300 py-2 sm:py-2 rounded shadow flex items-center justify-center text-sm sm:text-base touch-manipulation">
+                            <i className="fas fa-trash mr-1 sm:mr-2"></i> 刪除
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* 統計面板 */}
             {showStatsModal && <TennisStatsPanel matchData={matchData} />}
+            
+            {/* 截圖分享模態框 */}
+            {showSnapshotModal && <ScoreSnapshotModal matchData={matchData} onClose={() => setShowSnapshotModal(false)} />}
         </div>
     );
 };

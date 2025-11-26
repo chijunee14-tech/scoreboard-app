@@ -5,6 +5,9 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
     const { useState, useEffect } = React;
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [showPDFModal, setShowPDFModal] = useState(false);
+    const [showSnapshotModal, setShowSnapshotModal] = useState(false);
+    const [showAdvancedStats, setShowAdvancedStats] = useState(false);
 
     const exportToCSV = () => {
         // 處理欄位中的逗號和引號，避免 CSV 格式錯誤
@@ -174,8 +177,11 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
 
     return (
         <div className="p-4 max-w-4xl mx-auto">
-            {/* 統計面板 */}
+            {/* 基礎統計面板 */}
             <TennisStatsPanel matchData={matchData} />
+            
+            {/* 進階數據分析面板 */}
+            {showAdvancedStats && <AdvancedStatsPanel matchData={matchData} history={history} />}
             
             <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
@@ -188,15 +194,43 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
                             <div className="text-sm text-slate-400">當前局數</div>
                             <div className="font-bold text-xl">{matchData.setsA.join('-')} vs {matchData.setsB.join('-')}</div>
                         </div>
-                        <button 
-                            onClick={exportToCSV}
-                            disabled={history.length === 0}
-                            className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition"
-                            title="匯出為 CSV 檔案"
-                        >
-                            <i className="fas fa-share-alt"></i>
-                            <span>分享</span>
-                        </button>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setShowAdvancedStats(!showAdvancedStats)}
+                                className={`px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition ${
+                                    showAdvancedStats ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-700 hover:bg-slate-600'
+                                } text-white`}
+                                title="進階數據分析"
+                            >
+                                <i className="fas fa-chart-line"></i>
+                                <span className="hidden sm:inline">進階</span>
+                            </button>
+                            <button 
+                                onClick={() => setShowSnapshotModal(true)}
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition"
+                                title="比分截圖分享"
+                            >
+                                <i className="fas fa-camera"></i>
+                                <span className="hidden sm:inline">截圖</span>
+                            </button>
+                            <button 
+                                onClick={() => setShowPDFModal(true)}
+                                className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition"
+                                title="匯出 PDF 報告"
+                            >
+                                <i className="fas fa-file-pdf"></i>
+                                <span className="hidden sm:inline">PDF</span>
+                            </button>
+                            <button 
+                                onClick={exportToCSV}
+                                disabled={history.length === 0}
+                                className="bg-green-600 hover:bg-green-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 transition"
+                                title="匯出為 CSV 檔案"
+                            >
+                                <i className="fas fa-file-csv"></i>
+                                <span className="hidden sm:inline">CSV</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -263,6 +297,12 @@ const TennisReviewMode = ({ matchData, matchId, appId }) => {
                     </div>
                 )}
             </div>
+            
+            {/* PDF 匯出模態框 */}
+            {showPDFModal && <PDFExportModal matchData={matchData} matchId={matchId} history={history} onClose={() => setShowPDFModal(false)} />}
+            
+            {/* 截圖分享模態框 */}
+            {showSnapshotModal && <ScoreSnapshotModal matchData={matchData} onClose={() => setShowSnapshotModal(false)} />}
         </div>
     );
 };
