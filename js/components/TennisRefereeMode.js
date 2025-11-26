@@ -115,7 +115,19 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
         // 1. 檢查當前是否為破發點 (在得分前檢查)
         const isBreakPoint = checkIfBreakPoint(d.scoreA, d.scoreB, d.server, d.isTieBreak);
         
-        // 1.1 建立當前狀態的快照 (Snapshot) 用於 Undo
+        // 1.1 如果當前是破發點，先記錄破發點機會
+        if (isBreakPoint.isBreakPoint) {
+            const receiverTeam = isBreakPoint.receiverTeam === 'A' ? 'teamA' : 'teamB';
+            
+            // 確保 stats 結構存在
+            if (!d.stats) d.stats = { teamA: {}, teamB: {} };
+            if (!d.stats[receiverTeam]) d.stats[receiverTeam] = {};
+            
+            const currentTotal = d.stats[receiverTeam].breakPointsTotal || 0;
+            d.stats[receiverTeam].breakPointsTotal = currentTotal + 1;
+        }
+        
+        // 1.2 建立當前狀態的快照 (Snapshot) 用於 Undo
         const snapshot = {
             scoreA: d.scoreA,
             scoreB: d.scoreB,
@@ -168,23 +180,11 @@ const TennisRefereeMode = ({ matchData, matchId, appId }) => {
             // 在重置分數前，檢查是否發生破發
             const wasBreak = (d.server !== winner);
             
-            // 更新破發點統計
-            if (isBreakPoint.isBreakPoint) {
-                // 這是破發點機會，記錄 total
+            // 如果這是破發點且破發成功，記錄破發成功
+            if (isBreakPoint.isBreakPoint && wasBreak && isBreakPoint.receiverTeam === winner) {
                 const receiverTeam = isBreakPoint.receiverTeam === 'A' ? 'teamA' : 'teamB';
-                const currentTotal = d.stats?.[receiverTeam]?.breakPointsTotal || 0;
-                const currentWon = d.stats?.[receiverTeam]?.breakPointsWon || 0;
-                
-                // 確保 stats 結構存在
-                if (!d.stats) d.stats = { teamA: {}, teamB: {} };
-                if (!d.stats[receiverTeam]) d.stats[receiverTeam] = {};
-                
-                d.stats[receiverTeam].breakPointsTotal = currentTotal + 1;
-                
-                // 如果接發球方贏了這局，則破發成功
-                if (wasBreak && isBreakPoint.receiverTeam === winner) {
-                    d.stats[receiverTeam].breakPointsWon = currentWon + 1;
-                }
+                const currentWon = d.stats[receiverTeam].breakPointsWon || 0;
+                d.stats[receiverTeam].breakPointsWon = currentWon + 1;
             }
             
             d.scoreA = 0;
