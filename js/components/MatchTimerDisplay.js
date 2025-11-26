@@ -38,10 +38,27 @@ const MatchTimerDisplay = ({ matchData }) => {
         return null; // 已完賽不顯示計時
     }
 
+    const isPaused = matchData.timing?.isPaused || false;
+
     return (
-        <span className="text-yellow-400 font-mono text-sm flex items-center">
-            <i className="fas fa-clock mr-1"></i>
-            {formatTime(elapsedTime)}
-        </span>
+        <>
+            {isPaused ? (
+                <>
+                    <span className="text-yellow-400 font-bold text-xs animate-pulse flex items-center">
+                        <i className="fas fa-pause-circle mr-1"></i>
+                        暫停
+                    </span>
+                    <span className="text-yellow-400 font-mono text-sm animate-pulse flex items-center ml-2">
+                        <i className="fas fa-clock mr-1"></i>
+                        {formatTime(elapsedTime)}
+                    </span>
+                </>
+            ) : (
+                <span className="text-green-400 font-mono text-sm flex items-center">
+                    <i className="fas fa-clock mr-1"></i>
+                    {formatTime(elapsedTime)}
+                </span>
+            )}
+        </>
     );
 };
