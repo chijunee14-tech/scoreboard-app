@@ -59,6 +59,7 @@ doc.text(`Player A = ${matchData.teamA} | Player B = ${matchData.teamB}`, margin
 - 使用 `grid` 佈局導致兩個獨立進度條無法正確對比
 
 #### 原始代碼問題
+{% raw %}
 ```javascript
 // 舊設計：兩個獨立的進度條，各自計算百分比
 <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
@@ -70,10 +71,12 @@ doc.text(`Player A = ${matchData.teamA} | Player B = ${matchData.teamB}`, margin
     </div>
 </div>
 ```
+{% endraw %}
 
 #### 解決方案
 **改為中央對比式設計** - 使用單一進度條，兩種顏色從中央向兩側延伸
 
+{% raw %}
 ```javascript
 // 新設計：單一進度條，雙色分配
 const total = valueA + valueB || 1;
@@ -89,6 +92,7 @@ const percentB = (valueB / total) * 100;
     <span className="text-green-400 w-8 text-left">{valueB}</span>
 </div>
 ```
+{% endraw %}
 
 #### 視覺效果
 ```
@@ -117,6 +121,7 @@ A: 5  [■■■■■■■■■■■■■■■■□□□□□]  :3 B
 - 數字可讀性差，難以辨認
 
 #### 原始代碼
+{% raw %}
 ```javascript
 <text
     className="text-white text-lg font-bold"  // 使用 Tailwind class
@@ -125,12 +130,14 @@ A: 5  [■■■■■■■■■■■■■■■■□□□□□]  :3 B
     {percentage}%
 </text>
 ```
+{% endraw %}
 
 #### 問題分析
 - SVG `<text>` 元素不完全支援 Tailwind CSS 的 class
 - 需要使用原生 SVG 屬性
 
 #### 解決方案
+{% raw %}
 ```javascript
 <text
     x="48"
@@ -145,14 +152,17 @@ A: 5  [■■■■■■■■■■■■■■■■□□□□□]  :3 B
     {percentage}%
 </text>
 ```
+{% endraw %}
 
 #### 額外改進
 同時優化標籤文字：
+{% raw %}
 ```javascript
 <div className="text-white text-xs mt-2 text-center font-semibold">
     {label}  // 從 text-slate-400 改為 text-white
 </div>
 ```
+{% endraw %}
 
 #### 效果對比
 ```
