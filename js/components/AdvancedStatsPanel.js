@@ -87,29 +87,28 @@ const AdvancedStatsPanel = ({ matchData, history = [] }) => {
 
     const currentMomentum = calculateCurrentMomentum();
 
-    // 統計長條圖組件
+    // 統計長條圖組件 - 使用中央對比式設計
     const StatBar = ({ label, valueA, valueB, maxValue = null }) => {
-        const max = maxValue || Math.max(valueA, valueB, 1);
-        const percentA = (valueA / max) * 100;
-        const percentB = (valueB / max) * 100;
+        const total = valueA + valueB || 1;
+        const percentA = (valueA / total) * 100;
+        const percentB = (valueB / total) * 100;
 
         return (
             <div className="mb-4">
                 <div className="text-slate-400 text-xs mb-2">{label}</div>
-                <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
-                    <div className="flex items-center justify-end">
-                        <span className="text-blue-400 font-bold text-sm mr-2">{valueA}</span>
-                        <div className="flex-1 h-3 bg-slate-800 rounded-full overflow-hidden flex justify-end">
-                            <div className="bg-blue-500 transition-all duration-500" style={{ width: `${percentA}%` }}></div>
-                        </div>
+                <div className="flex items-center gap-3">
+                    <span className="text-blue-400 font-bold text-sm w-8 text-right">{valueA}</span>
+                    <div className="flex-1 flex h-4 bg-slate-900 rounded-full overflow-hidden">
+                        <div 
+                            className="bg-blue-500 transition-all duration-500" 
+                            style={{ width: `${percentA}%` }}
+                        ></div>
+                        <div 
+                            className="bg-green-500 transition-all duration-500" 
+                            style={{ width: `${percentB}%` }}
+                        ></div>
                     </div>
-                    <div className="text-slate-600 text-xs">VS</div>
-                    <div className="flex items-center">
-                        <div className="flex-1 h-3 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="bg-green-500 transition-all duration-500" style={{ width: `${percentB}%` }}></div>
-                        </div>
-                        <span className="text-green-400 font-bold text-sm ml-2">{valueB}</span>
-                    </div>
+                    <span className="text-green-400 font-bold text-sm w-8 text-left">{valueB}</span>
                 </div>
             </div>
         );
@@ -150,13 +149,15 @@ const AdvancedStatsPanel = ({ matchData, history = [] }) => {
                         y="48"
                         textAnchor="middle"
                         dy="0.3em"
-                        className="text-white text-lg font-bold"
+                        fill="#ffffff"
+                        className="text-lg font-bold"
                         transform="rotate(90 48 48)"
+                        style={{ fontSize: '18px', fontWeight: 'bold' }}
                     >
                         {percentage}%
                     </text>
                 </svg>
-                <div className="text-slate-400 text-xs mt-2 text-center">{label}</div>
+                <div className="text-white text-xs mt-2 text-center font-semibold">{label}</div>
             </div>
         );
     };

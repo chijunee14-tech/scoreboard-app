@@ -14,7 +14,8 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
-            // 載入中文字體（使用內建支援）
+            // 使用支援中文的字體
+            // 注意：基本中文字符可以顯示，複雜字符可能需要額外字體文件
             doc.setFont('helvetica');
             
             let yPos = 20;
@@ -37,11 +38,14 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
             doc.setFontSize(12);
             doc.setTextColor(51, 65, 85);
             yPos += 10;
-            doc.text(`Match: ${matchData.title}`, margin + 5, yPos);
+            // 使用 encodeURIComponent 處理中文，或直接使用英文標籤
+            const matchTitle = matchData.title || 'Match';
+            const matchType = MATCH_MODES[matchData.matchType]?.name || matchData.matchType;
+            doc.text(`Match: ${matchTitle}`, margin + 5, yPos);
             yPos += 8;
-            doc.text(`Type: ${MATCH_MODES[matchData.matchType]?.name || matchData.matchType}`, margin + 5, yPos);
+            doc.text(`Type: ${matchType}`, margin + 5, yPos);
             yPos += 8;
-            doc.text(`Date: ${new Date().toLocaleDateString('zh-TW')}`, margin + 5, yPos);
+            doc.text(`Date: ${new Date().toLocaleDateString('en-US')}`, margin + 5, yPos);
             yPos += 8;
             doc.text(`Status: ${matchData.winner ? 'Completed' : 'In Progress'}`, margin + 5, yPos);
             yPos += 15;
@@ -52,12 +56,19 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
             doc.setFontSize(16);
             doc.setTextColor(37, 99, 235);
             doc.text('Final Score', margin, yPos);
+            yPos += 5;
+            
+            // 選手名稱映射說明
+            doc.setFontSize(10);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`Player A = ${matchData.teamA} | Player B = ${matchData.teamB}`, margin + 5, yPos);
             yPos += 10;
 
             // 選手 A
             doc.setFontSize(14);
             doc.setTextColor(59, 130, 246); // Blue
-            doc.text(matchData.teamA, margin + 5, yPos);
+            // 使用 Player A/B 標籤，中文名稱放在括號中
+            doc.text(`Player A: ${matchData.teamA}`, margin + 5, yPos);
             doc.setFontSize(20);
             doc.setFont('helvetica', 'bold');
             doc.text(matchData.setsA.join(' - '), pageWidth - margin - 40, yPos, { align: 'right' });
@@ -67,7 +78,7 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(14);
             doc.setTextColor(34, 197, 94); // Green
-            doc.text(matchData.teamB, margin + 5, yPos);
+            doc.text(`Player B: ${matchData.teamB}`, margin + 5, yPos);
             doc.setFontSize(20);
             doc.setFont('helvetica', 'bold');
             doc.text(matchData.setsB.join(' - '), pageWidth - margin - 40, yPos, { align: 'right' });
@@ -80,8 +91,9 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(12);
                 doc.setTextColor(234, 179, 8); // Yellow
-                const winner = matchData.winner === 'A' ? matchData.teamA : matchData.teamB;
-                doc.text(`Winner: ${winner}`, margin + 5, yPos);
+                const winnerLabel = matchData.winner === 'A' ? 'Player A' : 'Player B';
+                const winnerName = matchData.winner === 'A' ? matchData.teamA : matchData.teamB;
+                doc.text(`Winner: ${winnerLabel} (${winnerName})`, margin + 5, yPos);
                 yPos += 15;
             }
 
@@ -98,7 +110,7 @@ const PDFExportModal = ({ matchData, matchId, onClose, history = [] }) => {
 
             // 準備統計表格數據
             const statsData = [
-                ['Statistic', matchData.teamA, matchData.teamB],
+                ['Statistic', 'Player A', 'Player B'],
                 ['Aces', statsA.aces || 0, statsB.aces || 0],
                 ['Double Faults', statsA.doubleFaults || 0, statsB.doubleFaults || 0],
                 ['Winners', statsA.winners || 0, statsB.winners || 0],
